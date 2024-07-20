@@ -23,7 +23,8 @@ use fugit::ExtU32;
 
 // Ensure we halt the program on panic (if we don't mention this crate it won't
 // be linked)
-use panic_halt as _;
+#[allow(unused_imports)]
+use panic_halt as _i;
 
 // A shorter alias for the Peripheral Access Crate, which provides low-level
 // register access
@@ -32,6 +33,9 @@ use rp_pico::hal::pac;
 // A shorter alias for the Hardware Abstraction Layer, which provides
 // higher-level drivers.
 use rp_pico::hal;
+
+mod inky73;
+mod psram_display;
 
 #[entry]
 fn main() -> ! {
@@ -71,7 +75,7 @@ fn main() -> ! {
         &mut pac.RESETS,
     );
 
-    let mut led_pin = pins.led.into_push_pull_output();
+    let mut led_pin = pins.gpio6.into_push_pull_output();
 
     // Blink the LED at 1 Hz
     loop {
