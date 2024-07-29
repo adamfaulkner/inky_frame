@@ -23,7 +23,6 @@ use fugit::RateExtU32;
 const DISPLAY_WIDTH: usize = 800;
 const DISPLAY_HEIGHT: usize = 480;
 const DISPLAY_BUFFER_SIZE: usize = 800 * 480 / 2;
-const BLACK: u8 = 0;
 
 pub struct ShiftRegister<C, L, D>
 where
@@ -291,7 +290,35 @@ impl Inky73 {
 
         self.dc.set_high()?; // data mode
 
-        let display_buffer: [u8; DISPLAY_BUFFER_SIZE] = [0; DISPLAY_BUFFER_SIZE];
+        let mut display_buffer: [u8; DISPLAY_BUFFER_SIZE] = [0; DISPLAY_BUFFER_SIZE];
+
+        let circle_radius = DISPLAY_HEIGHT / 2;
+
+        for i in 0..DISPLAY_HEIGHT {
+            for j in 0..DISPLAY_WIDTH / 2 {
+                let j1 = j * 2;
+                let j2 = j1 + 1;
+                let v1: u8 = if ((i * i) + (j1 * j1)) < circle_radius * circle_radius {
+                    0 // BLACK
+                } else {
+                    ((i / 60) % 8) as u8
+                };
+                let v2: u8 = if ((i * i) + (j2 * j2)) < circle_radius * circle_radius {
+                    0 // BLACK
+                } else {
+                    ((i / 60) % 8) as u8
+                };
+
+                let v: u8 = (v1 << 4) | v2;
+
+                let coord = (i * DISPLAY_WIDTH / 2) + j;
+                if coord >= DISPLAY_BUFFER_SIZE {
+                    blink_signals_loop(&mut self.led_pin, &mut self.delay, &BLINK_ERR_4_SHORT);
+                }
+                display_buffer[coord] = v;
+            }
+        }
+
         self.spi.write(&display_buffer)?;
         self.spi.flush()?;
 
