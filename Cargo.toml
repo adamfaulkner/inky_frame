@@ -11,6 +11,8 @@ fugit = "*"
 embedded-hal = "1"
 cortex-m = "*"
 nb = "*"
+tinybmp = "0.6.0"
+embedded-graphics = "0.8.1"
 
 [profile.release]
 panic = 'abort'

@@ -35,6 +35,7 @@ use rp_pico::hal::pac;
 // higher-level drivers.
 use rp_pico::hal;
 
+mod graphics;
 mod inky73;
 mod psram_display;
 

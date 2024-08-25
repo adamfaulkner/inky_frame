@@ -16,13 +16,15 @@ use rp_pico::{
 // Embed the `Hz` function/trait:
 use fugit::RateExtU32;
 
+use crate::graphics::convert_image;
+
 // Dimensions: 800 x 480
 // Each pixel is one nibble
 // Black is 0
 
-const DISPLAY_WIDTH: usize = 800;
-const DISPLAY_HEIGHT: usize = 480;
-const DISPLAY_BUFFER_SIZE: usize = 800 * 480 / 2;
+pub const DISPLAY_WIDTH: usize = 800;
+pub const DISPLAY_HEIGHT: usize = 480;
+pub const DISPLAY_BUFFER_SIZE: usize = 800 * 480 / 2;
 
 pub struct ShiftRegister<C, L, D>
 where
@@ -294,6 +296,7 @@ impl Inky73 {
 
         let circle_radius = DISPLAY_HEIGHT / 2;
 
+        /*
         for i in 0..DISPLAY_HEIGHT {
             for j in 0..DISPLAY_WIDTH / 2 {
                 let j1 = j * 2;
@@ -318,6 +321,8 @@ impl Inky73 {
                 display_buffer[coord] = v;
             }
         }
+        */
+        convert_image(&mut display_buffer);
 
         self.spi.write(&display_buffer)?;
         self.spi.flush()?;
