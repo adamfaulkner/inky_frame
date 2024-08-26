@@ -1,20 +1,21 @@
+use core::{cell::RefCell, convert::Infallible};
+
 use cortex_m::asm::nop;
 
 use embedded_hal::{
     delay::DelayNs,
     digital::{InputPin, OutputPin},
-    spi::SpiBus,
+    spi::{Operation, SpiBus, SpiDevice},
 };
-use rp_pico::{
-    hal::{
+use embedded_hal_bus::spi::RefCellDevice;
+use rp_pico::hal::{
+    gpio::{
         self,
-        gpio::{self, DynPinId},
-        spi, Clock, Timer,
+        bank0::{Gpio10, Gpio17, Gpio27, Gpio28, Gpio6, Gpio8, Gpio9},
+        DynPinId, FunctionSioInput, FunctionSioOutput, Pin, PullDown, PullUp,
     },
-    pac,
+    Timer,
 };
-// Embed the `Hz` function/trait:
-use fugit::RateExtU32;
 
 use crate::graphics::convert_image;
 
@@ -67,20 +68,18 @@ where
     }
 }
 
-pub struct Inky73 {
-    // Low = select the display, High = do not
-    cs: gpio::Pin<DynPinId, gpio::FunctionSioOutput, gpio::PullDown>,
+pub struct Inky73<'a, BUS>
+where
+    BUS: SpiBus<Error = Infallible>,
+{
     // Low = command mode, High = Data Mode
-    dc: gpio::Pin<DynPinId, gpio::FunctionSioOutput, gpio::PullDown>,
-    reset: gpio::Pin<DynPinId, gpio::FunctionSioOutput, gpio::PullDown>,
-    spi: spi::Spi<
-        spi::Enabled,
-        pac::SPI0,
-        (
-            gpio::Pin<gpio::bank0::Gpio19, gpio::FunctionSpi, gpio::PullNone>,
-            gpio::Pin<gpio::bank0::Gpio16, gpio::FunctionSpi, gpio::PullUp>,
-            gpio::Pin<gpio::bank0::Gpio18, gpio::FunctionSpi, gpio::PullNone>,
-        ),
+    dc: gpio::Pin<Gpio28, gpio::FunctionSioOutput, gpio::PullDown>,
+    reset: gpio::Pin<Gpio27, gpio::FunctionSioOutput, gpio::PullDown>,
+    spi_device: RefCellDevice<
+        'a,
+        BUS,
+        gpio::Pin<gpio::bank0::Gpio17, gpio::FunctionSioOutput, gpio::PullUp>,
+        Timer,
     >,
     delay: Timer,
     shift_register: ShiftRegister<
@@ -128,57 +127,23 @@ const CCSET: u8 = 0xE0;
 const PWS: u8 = 0xE3;
 const TSSET: u8 = 0xE6;
 
-impl Inky73 {
-    pub fn new() -> Inky73 {
-        let mut pac = pac::Peripherals::take().unwrap();
-        let sio = hal::Sio::new(pac.SIO);
+pub struct InkyPins {
+    pub gpio17: Pin<Gpio17, FunctionSioOutput, PullUp>,
+    pub gpio8: Pin<Gpio8, FunctionSioOutput, PullDown>,
+    pub gpio9: Pin<Gpio9, FunctionSioOutput, PullDown>,
+    pub gpio10: Pin<Gpio10, FunctionSioInput, PullDown>,
+    pub gpio28: Pin<Gpio28, FunctionSioOutput, PullDown>,
+    pub gpio27: Pin<Gpio27, FunctionSioOutput, PullDown>,
+    pub gpio6: Pin<Gpio6, FunctionSioOutput, PullDown>,
+}
 
-        // Set the pins up according to their function on this particular board
-        let pins = rp_pico::Pins::new(
-            pac.IO_BANK0,
-            pac.PADS_BANK0,
-            sio.gpio_bank0,
-            &mut pac.RESETS,
-        );
-        let spi_sclk: gpio::Pin<_, gpio::FunctionSpi, gpio::PullNone> = pins.gpio18.reconfigure();
-        let spi_mosi: gpio::Pin<_, gpio::FunctionSpi, gpio::PullNone> = pins.gpio19.reconfigure();
-        let spi_miso: gpio::Pin<_, gpio::FunctionSpi, gpio::PullUp> = pins.gpio16.reconfigure();
-        let spi: spi::Spi<
-            spi::Disabled,
-            pac::SPI0,
-            (
-                gpio::Pin<gpio::bank0::Gpio19, gpio::FunctionSpi, gpio::PullNone>,
-                gpio::Pin<gpio::bank0::Gpio16, gpio::FunctionSpi, gpio::PullUp>,
-                gpio::Pin<gpio::bank0::Gpio18, gpio::FunctionSpi, gpio::PullNone>,
-            ),
-        > = spi::Spi::new(pac.SPI0, (spi_mosi, spi_miso, spi_sclk));
-
-        // Set up the watchdog driver - needed by the clock setup code
-        let mut watchdog = hal::Watchdog::new(pac.WATCHDOG);
-
-        // Configure the clocks
-        //
-        // The default is to generate a 125 MHz system clock
-        let clocks = hal::clocks::init_clocks_and_plls(
-            rp_pico::XOSC_CRYSTAL_FREQ,
-            pac.XOSC,
-            pac.CLOCKS,
-            pac.PLL_SYS,
-            pac.PLL_USB,
-            &mut pac.RESETS,
-            &mut watchdog,
-        )
-        .ok()
-        .unwrap();
-
-        let spi = spi.init(
-            &mut pac.RESETS,
-            clocks.peripheral_clock.freq(),
-            20.MHz(),
-            embedded_hal::spi::MODE_0,
-        );
-
-        let delay = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
+impl<'a, BUS> Inky73<'a, BUS>
+where
+    BUS: SpiBus<Error = Infallible>,
+{
+    pub fn new(spi_refcel: &'a RefCell<BUS>, pins: InkyPins, delay: Timer) -> Self {
+        let cs = pins.gpio17;
+        let spi_device = RefCellDevice::new(spi_refcel, cs, delay).unwrap();
 
         let shift_register = ShiftRegister::new(
             pins.gpio8.into_push_pull_output(),
@@ -187,16 +152,9 @@ impl Inky73 {
         );
 
         Inky73 {
-            cs: pins
-                .gpio17
-                .into_push_pull_output_in_state(gpio::PinState::High)
-                .into_dyn_pin(),
-            dc: pins.gpio28.into_push_pull_output().into_dyn_pin(),
-            reset: pins
-                .gpio27
-                .into_push_pull_output_in_state(gpio::PinState::High)
-                .into_dyn_pin(),
-            spi,
+            dc: pins.gpio28,
+            reset: pins.gpio27,
+            spi_device,
             delay,
             led_pin: pins.gpio6.into_push_pull_output().into_dyn_pin(),
             shift_register,
@@ -267,81 +225,38 @@ impl Inky73 {
         }
     }
 
-    pub fn command(&mut self, reg: u8, data: &[u8]) -> Result<(), gpio::Error> {
-        self.cs.set_low()?;
+    pub fn command(&mut self, reg: u8, data: &[u8]) -> Result<(), Infallible> {
         self.dc.set_low()?;
-
-        self.spi.write(&[reg])?;
+        self.spi_device
+            .transaction(&mut [Operation::Write(&[reg])])
+            .unwrap();
 
         if data.len() > 0 {
-            self.spi.flush()?;
             self.dc.set_high()?;
-            self.spi.write(data)?;
+            self.spi_device
+                .transaction(&mut [Operation::Write(data)])
+                .unwrap();
         }
-        self.spi.flush()?;
-        self.cs.set_high()
+        Ok(())
     }
 
     pub fn update(&mut self) -> Result<(), gpio::Error> {
         self.setup()?;
 
-        self.cs.set_low()?;
         self.dc.set_low()?; // command mode
-        self.spi.write(&[DTM1])?;
-        self.spi.flush()?;
-
+        self.spi_device
+            .transaction(&mut [Operation::Write(&[DTM1])])
+            .unwrap();
         self.dc.set_high()?; // data mode
 
         let mut display_buffer: [u8; DISPLAY_BUFFER_SIZE] = [0; DISPLAY_BUFFER_SIZE];
-
-        let circle_radius = DISPLAY_HEIGHT / 2;
-
-        /*
-        for i in 0..DISPLAY_HEIGHT {
-            for j in 0..DISPLAY_WIDTH / 2 {
-                let j1 = j * 2;
-                let j2 = j1 + 1;
-                let v1: u8 = if ((i * i) + (j1 * j1)) < circle_radius * circle_radius {
-                    0 // BLACK
-                } else {
-                    ((i / 60) % 8) as u8
-                };
-                let v2: u8 = if ((i * i) + (j2 * j2)) < circle_radius * circle_radius {
-                    0 // BLACK
-                } else {
-                    ((i / 60) % 8) as u8
-                };
-
-                let v: u8 = (v1 << 4) | v2;
-
-                let coord = (i * DISPLAY_WIDTH / 2) + j;
-                if coord >= DISPLAY_BUFFER_SIZE {
-                    blink_signals_loop(&mut self.led_pin, &mut self.delay, &BLINK_ERR_4_SHORT);
-                }
-                display_buffer[coord] = v;
-            }
-        }
-        */
         convert_image(&mut display_buffer);
 
-        self.spi.write(&display_buffer)?;
-        self.spi.flush()?;
-
-        /* Here is where we would write our graphics data to the screen.
-        uint totalLength = 0;
-        gpio_put(CS, 1);
-        graphics->frame_convert(PicoGraphics::PEN_INKY7, [this, &totalLength](void *buf, size_t length) {
-          if (length > 0) {
-            gpio_put(CS, 0);
-            spi_write_blocking(spi, (const uint8_t*)buf, length);
-            totalLength += length;
-            gpio_put(CS, 1);
-          }
-        });
-        */
+        self.spi_device
+            .transaction(&mut [Operation::Write(&display_buffer)])
+            .unwrap();
 
         self.dc.set_low()?; // end data mode
-        self.cs.set_high()?;
 
         self.busy_wait();
 

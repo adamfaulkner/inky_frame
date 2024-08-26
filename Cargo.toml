@@ -13,6 +13,8 @@ cortex-m = "*"
 nb = "*"
 tinybmp = "0.6.0"
 embedded-graphics = "0.8.1"
+embedded-hal-bus = "0.2.0"
+portable-atomic = {version = "1.7.0", features = ["unsafe-assume-single-core"]}
 
 [profile.release]
 panic = 'abort'
