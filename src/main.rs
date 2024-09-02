@@ -12,6 +12,14 @@
 
 use core::cell::RefCell;
 
+use blink::{
+    blink_signals, blink_signals_loop, BLINK_OK_LONG, BLINK_OK_SHORT_LONG,
+    BLINK_OK_SHORT_SHORT_LONG,
+};
+use embedded_hal::delay::DelayNs;
+use embedded_hal::digital::OutputPin;
+use embedded_hal_bus::spi::RefCellDevice;
+use graphics::INPUT_BUFFER;
 use inky73::{Inky73, InkyPins};
 // The macro for our start-up function
 use rp_pico::entry;
@@ -21,6 +29,8 @@ use rp_pico::entry;
 #[allow(unused_imports)]
 use panic_halt as _i;
 
+use rp_pico::hal::gpio::bank0::{Gpio17, Gpio22};
+use rp_pico::hal::gpio::{FunctionSioOutput, Pin, PullUp};
 // A shorter alias for the Peripheral Access Crate, which provides low-level
 // register access
 use rp_pico::hal::{gpio, pac, spi, Clock, Timer};
@@ -29,11 +39,14 @@ use rp_pico::hal::{gpio, pac, spi, Clock, Timer};
 // higher-level drivers.
 use rp_pico::hal;
 
+mod blink;
 mod graphics;
 mod inky73;
 mod psram_display;
+mod sdcard;
 // Embed the `Hz` function/trait:
 use fugit::RateExtU32;
+use sdcard::InkySdCard;
 
 #[entry]
 fn main() -> ! {
@@ -87,11 +100,11 @@ fn main() -> ! {
         embedded_hal::spi::MODE_0,
     );
 
-    let delay = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
+    let mut delay = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
+    let mut led_pin = pins.gpio11.into_push_pull_output();
 
     let spi_rc = RefCell::new(spi);
     let inky_pins: InkyPins = InkyPins {
-        gpio17: pins.gpio17.reconfigure(),
         gpio8: pins.gpio8.reconfigure(),
         gpio9: pins.gpio9.reconfigure(),
         gpio10: pins.gpio10.reconfigure(),
@@ -99,7 +112,21 @@ fn main() -> ! {
         gpio27: pins.gpio27.reconfigure(),
         gpio6: pins.gpio6.reconfigure(),
     };
-    let mut inky = Inky73::new(&spi_rc, inky_pins, delay);
+    let frame_spi_cs: Pin<Gpio17, FunctionSioOutput, PullUp> = pins.gpio17.reconfigure();
+    let frame_spi_device = RefCellDevice::new(&spi_rc, frame_spi_cs, delay).unwrap();
 
-    inky.setup_and_status_loop();
+    let sdcard_cs: Pin<Gpio22, FunctionSioOutput, PullUp> = pins.gpio22.reconfigure();
+    let sdcard_spi_device = RefCellDevice::new(&spi_rc, sdcard_cs, delay).unwrap();
+
+    blink_signals(&mut led_pin, &mut delay, &BLINK_OK_SHORT_LONG);
+
+    let mut inky = Inky73::new(frame_spi_device, inky_pins, delay);
+    let mut sdcard = InkySdCard::new(sdcard_spi_device, delay, &mut led_pin);
+    let mut input_buffer: INPUT_BUFFER = [0; 3000000];
+    sdcard.read_image(&mut input_buffer);
+    blink_signals_loop(&mut led_pin, &mut delay, &BLINK_OK_LONG);
+
+    blink_signals(&mut led_pin, &mut delay, &BLINK_OK_SHORT_SHORT_LONG);
+
+    inky.setup_and_status_loop(&input_buffer);
 }

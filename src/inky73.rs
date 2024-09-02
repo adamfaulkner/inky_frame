@@ -2,6 +2,10 @@ use core::{cell::RefCell, convert::Infallible};
 
 use cortex_m::asm::nop;
 
+use crate::blink::{
+    blink_signals, blink_signals_loop, BLINK_ERR_3_SHORT, BLINK_OK_LONG, BLINK_OK_SHORT_LONG,
+    BLINK_OK_SHORT_SHORT_LONG,
+};
 use embedded_hal::{
     delay::DelayNs,
     digital::{InputPin, OutputPin},
@@ -17,7 +21,7 @@ use rp_pico::hal::{
     Timer,
 };
 
-use crate::graphics::convert_image;
+use crate::graphics::{convert_image, INPUT_BUFFER};
 
 // Dimensions: 800 x 480
 // Each pixel is one nibble
@@ -68,19 +72,14 @@ where
     }
 }
 
-pub struct Inky73<'a, BUS>
+pub struct Inky73<Device>
 where
-    BUS: SpiBus<Error = Infallible>,
+    Device: SpiDevice,
 {
     // Low = command mode, High = Data Mode
     dc: gpio::Pin<Gpio28, gpio::FunctionSioOutput, gpio::PullDown>,
     reset: gpio::Pin<Gpio27, gpio::FunctionSioOutput, gpio::PullDown>,
-    spi_device: RefCellDevice<
-        'a,
-        BUS,
-        gpio::Pin<gpio::bank0::Gpio17, gpio::FunctionSioOutput, gpio::PullUp>,
-        Timer,
-    >,
+    spi_device: Device,
     delay: Timer,
     shift_register: ShiftRegister<
         gpio::Pin<gpio::bank0::Gpio8, gpio::FunctionSioOutput, gpio::PullDown>,
@@ -128,7 +127,6 @@ const PWS: u8 = 0xE3;
 const TSSET: u8 = 0xE6;
 
 pub struct InkyPins {
-    pub gpio17: Pin<Gpio17, FunctionSioOutput, PullUp>,
     pub gpio8: Pin<Gpio8, FunctionSioOutput, PullDown>,
     pub gpio9: Pin<Gpio9, FunctionSioOutput, PullDown>,
     pub gpio10: Pin<Gpio10, FunctionSioInput, PullDown>,
@@ -137,14 +135,11 @@ pub struct InkyPins {
     pub gpio6: Pin<Gpio6, FunctionSioOutput, PullDown>,
 }
 
-impl<'a, BUS> Inky73<'a, BUS>
+impl<Device> Inky73<Device>
 where
-    BUS: SpiBus<Error = Infallible>,
+    Device: SpiDevice,
 {
-    pub fn new(spi_refcel: &'a RefCell<BUS>, pins: InkyPins, delay: Timer) -> Self {
-        let cs = pins.gpio17;
-        let spi_device = RefCellDevice::new(spi_refcel, cs, delay).unwrap();
-
+    pub fn new(spi_device: Device, pins: InkyPins, delay: Timer) -> Self {
         let shift_register = ShiftRegister::new(
             pins.gpio8.into_push_pull_output(),
             pins.gpio9.into_push_pull_output(),
@@ -196,7 +191,7 @@ where
         self.command(TSSET, &[0x00])
     }
 
-    pub fn setup_and_status_loop(&mut self) -> ! {
+    pub fn setup_and_status_loop(&mut self, input_buffer: &INPUT_BUFFER) -> ! {
         match self.setup() {
             Ok(_) => (),
             Err(_) => blink_signals_loop(&mut self.led_pin, &mut self.delay, &BLINK_ERR_3_SHORT),
@@ -205,7 +200,7 @@ where
         blink_signals(&mut self.led_pin, &mut self.delay, &BLINK_OK_LONG);
         blink_signals(&mut self.led_pin, &mut self.delay, &BLINK_OK_LONG);
 
-        match self.update() {
+        match self.update(input_buffer) {
             Ok(_) => blink_signals_loop(
                 &mut self.led_pin,
                 &mut self.delay,
@@ -240,7 +235,7 @@ where
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<(), gpio::Error> {
+    pub fn update(&mut self, input_buffer: &INPUT_BUFFER) -> Result<(), gpio::Error> {
         self.setup()?;
 
         self.dc.set_low()?; // command mode
@@ -250,7 +245,7 @@ where
         self.dc.set_high()?; // data mode
 
         let mut display_buffer: [u8; DISPLAY_BUFFER_SIZE] = [0; DISPLAY_BUFFER_SIZE];
-        convert_image(&mut display_buffer);
+        convert_image(input_buffer, &mut display_buffer);
 
         self.spi_device
             .transaction(&mut [Operation::Write(&display_buffer)])
@@ -268,49 +263,5 @@ where
         self.command(POF, &[])?;
         self.busy_wait();
         Ok(())
-    }
-}
-
-// Setup some blinking codes:
-const BLINK_OK_LONG: [u8; 1] = [8u8];
-const BLINK_OK_SHORT_LONG: [u8; 4] = [1u8, 0u8, 6u8, 0u8];
-const BLINK_OK_SHORT_SHORT_LONG: [u8; 6] = [1u8, 0u8, 1u8, 0u8, 6u8, 0u8];
-const BLINK_ERR_3_SHORT: [u8; 6] = [1u8, 0u8, 1u8, 0u8, 1u8, 0u8];
-const BLINK_ERR_4_SHORT: [u8; 8] = [1u8, 0u8, 1u8, 0u8, 1u8, 0u8, 1u8, 0u8];
-const BLINK_ERR_5_SHORT: [u8; 10] = [1u8, 0u8, 1u8, 0u8, 1u8, 0u8, 1u8, 0u8, 1u8, 0u8];
-const BLINK_ERR_6_SHORT: [u8; 12] = [1u8, 0u8, 1u8, 0u8, 1u8, 0u8, 1u8, 0u8, 1u8, 0u8, 1u8, 0u8];
-
-fn blink_signals(
-    pin: &mut dyn embedded_hal::digital::OutputPin<Error = core::convert::Infallible>,
-    delay: &mut dyn DelayNs,
-    sig: &[u8],
-) {
-    for bit in sig {
-        if *bit != 0 {
-            pin.set_high().unwrap();
-        } else {
-            pin.set_low().unwrap();
-        }
-
-        let length = if *bit > 0 { *bit } else { 1 };
-
-        for _ in 0..length {
-            delay.delay_ms(100);
-        }
-    }
-
-    pin.set_low().unwrap();
-
-    delay.delay_ms(500);
-}
-
-fn blink_signals_loop(
-    pin: &mut dyn embedded_hal::digital::OutputPin<Error = core::convert::Infallible>,
-    delay: &mut dyn DelayNs,
-    sig: &[u8],
-) -> ! {
-    loop {
-        blink_signals(pin, delay, sig);
-        delay.delay_ms(1000);
     }
 }

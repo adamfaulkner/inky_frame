@@ -11,7 +11,8 @@ use embedded_graphics::{
 };
 use tinybmp::Bmp;
 
-static BMP_DATA: &[u8] = include_bytes!("../../../Downloads/resized_pizza_party.bmp");
+pub type INPUT_BUFFER = [u8; 3000000];
+
 static PALETTE: [Rgb888; 8] = [
     Rgb888::new(0, 0, 0),
     Rgb888::new(255, 255, 255),
@@ -215,8 +216,8 @@ fn convert_single_pixel(
     inky_color
 }
 
-pub fn convert_image(output_buffer: &mut [u8; DISPLAY_BUFFER_SIZE]) {
-    let bmp: Bmp<Rgb888> = Bmp::from_slice(BMP_DATA).unwrap();
+pub fn convert_image(input_buffer: &INPUT_BUFFER, output_buffer: &mut [u8; DISPLAY_BUFFER_SIZE]) {
+    let bmp: Bmp<Rgb888> = Bmp::from_slice(input_buffer).unwrap();
     let image_size = bmp.size();
 
     let mut row_a_error: [PixelError; DISPLAY_WIDTH] = [PixelError::default(); DISPLAY_WIDTH];
