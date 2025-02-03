@@ -31,8 +31,6 @@ rustflags = [
     "-C",
     "link-arg=-Tlink.x",
     "-C",
-    "inline-threshold=5",
-    "-C",
     "no-vectorize-loops",
 ]
 

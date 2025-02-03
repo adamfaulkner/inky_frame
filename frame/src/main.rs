@@ -39,7 +39,6 @@ use rp_pico::hal::{gpio, pac, spi, Clock, Timer};
 use rp_pico::hal;
 
 mod blink;
-mod graphics;
 mod inky73;
 mod psram_display;
 mod sdcard;

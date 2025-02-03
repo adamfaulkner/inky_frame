@@ -21,8 +21,6 @@ use rp_pico::hal::{
     Timer,
 };
 
-use crate::graphics::{convert_image, INPUT_BUFFER};
-
 // Dimensions: 800 x 480
 // Each pixel is one nibble
 // Black is 0

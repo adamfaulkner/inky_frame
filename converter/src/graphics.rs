@@ -3,19 +3,6 @@ use core::{
     ops::{Add, AddAssign, Div, Mul},
 };
 
-use crate::{
-    blink::blink_signals_loop,
-    inky73::{DISPLAY_BUFFER_SIZE, DISPLAY_WIDTH},
-    sdcard::{InkySdCard, SdCardReaderAdapter},
-};
-use embedded_graphics::{
-    geometry::{OriginDimensions, Point},
-    image::GetPixel,
-    pixelcolor::{Rgb888, RgbColor},
-};
-use tinybmp::Bmp;
-use zune_qoi::QoiDecoder;
-
 static PALETTE: [Rgb888; 8] = [
     Rgb888::new(0, 0, 0),
     Rgb888::new(255, 255, 255),
