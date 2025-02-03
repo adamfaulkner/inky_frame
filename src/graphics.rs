@@ -3,15 +3,18 @@ use core::{
     ops::{Add, AddAssign, Div, Mul},
 };
 
-use crate::inky73::{DISPLAY_BUFFER_SIZE, DISPLAY_WIDTH};
+use crate::{
+    blink::blink_signals_loop,
+    inky73::{DISPLAY_BUFFER_SIZE, DISPLAY_WIDTH},
+    sdcard::{InkySdCard, SdCardReaderAdapter},
+};
 use embedded_graphics::{
     geometry::{OriginDimensions, Point},
     image::GetPixel,
     pixelcolor::{Rgb888, RgbColor},
 };
 use tinybmp::Bmp;
-
-pub type INPUT_BUFFER = [u8; 3000000];
+use zune_qoi::QoiDecoder;
 
 static PALETTE: [Rgb888; 8] = [
     Rgb888::new(0, 0, 0),
@@ -216,9 +219,15 @@ fn convert_single_pixel(
     inky_color
 }
 
-pub fn convert_image(input_buffer: &INPUT_BUFFER, output_buffer: &mut [u8; DISPLAY_BUFFER_SIZE]) {
-    let bmp: Bmp<Rgb888> = Bmp::from_slice(input_buffer).unwrap();
-    let image_size = bmp.size();
+pub fn convert_image<'a, SPI: embedded_hal::spi::SpiDevice>(
+    sd_card: InkySdCard<'a, SPI>,
+    output_buffer: &mut [u8; DISPLAY_BUFFER_SIZE],
+) {
+    let mut read_buf: [u8; 4096] = [0; 4096];
+    let reader_adapter = SdCardReaderAdapter::new(sd_card);
+    let qoi_decoder = QoiDecoder::new(reader_adapter);
+
+    let read_bytes = sd_card.read_image(&mut read_buf);
 
     let mut row_a_error: [PixelError; DISPLAY_WIDTH] = [PixelError::default(); DISPLAY_WIDTH];
     let mut row_b_error: [PixelError; DISPLAY_WIDTH] = [PixelError::default(); DISPLAY_WIDTH];
@@ -227,7 +236,7 @@ pub fn convert_image(input_buffer: &INPUT_BUFFER, output_buffer: &mut [u8; DISPL
     let mut next_row_error = &mut row_b_error;
     let mut next_next_row_error = &mut row_c_error;
 
-    for i in 0..image_size.height {
+    for i in 0..qoi_header.height() {
         // Swap the error rows and reset the next_row_error.
         if i > 0 {
             swap(&mut current_row_error, &mut next_row_error);
@@ -239,7 +248,7 @@ pub fn convert_image(input_buffer: &INPUT_BUFFER, output_buffer: &mut [u8; DISPL
 
         // Note that j ranges over indexes in the display, rather than pixels in the source image.
         // Since each byte of display holds two pixels, we range over this / 2
-        for j in 0..(image_size.width / 2) {
+        for j in 0..(qoi_header.width() / 2) {
             let inky_color_1 = convert_single_pixel(
                 i as usize,
                 (j * 2) as usize,

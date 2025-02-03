@@ -19,7 +19,6 @@ use blink::{
 use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::OutputPin;
 use embedded_hal_bus::spi::RefCellDevice;
-use graphics::INPUT_BUFFER;
 use inky73::{Inky73, InkyPins};
 // The macro for our start-up function
 use rp_pico::entry;
@@ -122,8 +121,6 @@ fn main() -> ! {
 
     let mut inky = Inky73::new(frame_spi_device, inky_pins, delay);
     let mut sdcard = InkySdCard::new(sdcard_spi_device, delay, &mut led_pin);
-    let mut input_buffer: INPUT_BUFFER = [0; 3000000];
-    sdcard.read_image(&mut input_buffer);
     blink_signals_loop(&mut led_pin, &mut delay, &BLINK_OK_LONG);
 
     blink_signals(&mut led_pin, &mut delay, &BLINK_OK_SHORT_SHORT_LONG);
