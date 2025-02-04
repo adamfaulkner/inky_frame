@@ -120,9 +120,6 @@ fn main() -> ! {
 
     let mut inky = Inky73::new(frame_spi_device, inky_pins, delay);
     let mut sdcard = InkySdCard::new(sdcard_spi_device, delay, &mut led_pin);
-    blink_signals_loop(&mut led_pin, &mut delay, &BLINK_OK_LONG);
 
-    blink_signals(&mut led_pin, &mut delay, &BLINK_OK_SHORT_SHORT_LONG);
-
-    inky.setup_and_status_loop(&input_buffer);
+    inky.setup_and_status_loop(&mut sdcard);
 }

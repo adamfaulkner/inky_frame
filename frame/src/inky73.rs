@@ -2,9 +2,12 @@ use core::{cell::RefCell, convert::Infallible};
 
 use cortex_m::asm::nop;
 
-use crate::blink::{
-    blink_signals, blink_signals_loop, BLINK_ERR_3_SHORT, BLINK_OK_LONG, BLINK_OK_SHORT_LONG,
-    BLINK_OK_SHORT_SHORT_LONG,
+use crate::{
+    blink::{
+        blink_signals, blink_signals_loop, BLINK_ERR_3_SHORT, BLINK_OK_LONG, BLINK_OK_SHORT_LONG,
+        BLINK_OK_SHORT_SHORT_LONG,
+    },
+    sdcard::InkySdCard,
 };
 use embedded_hal::{
     delay::DelayNs,
@@ -189,7 +192,10 @@ where
         self.command(TSSET, &[0x00])
     }
 
-    pub fn setup_and_status_loop(&mut self, input_buffer: &INPUT_BUFFER) -> ! {
+    pub fn setup_and_status_loop<T: embedded_hal::spi::SpiDevice>(
+        &mut self,
+        sdcard: &mut InkySdCard<T>,
+    ) -> ! {
         match self.setup() {
             Ok(_) => (),
             Err(_) => blink_signals_loop(&mut self.led_pin, &mut self.delay, &BLINK_ERR_3_SHORT),
@@ -198,7 +204,10 @@ where
         blink_signals(&mut self.led_pin, &mut self.delay, &BLINK_OK_LONG);
         blink_signals(&mut self.led_pin, &mut self.delay, &BLINK_OK_LONG);
 
-        match self.update(input_buffer) {
+        let mut input_buffer = [0u8; DISPLAY_BUFFER_SIZE];
+        sdcard.read_image(&mut input_buffer);
+
+        match self.update(&input_buffer) {
             Ok(_) => blink_signals_loop(
                 &mut self.led_pin,
                 &mut self.delay,
@@ -233,7 +242,10 @@ where
         Ok(())
     }
 
-    pub fn update(&mut self, input_buffer: &INPUT_BUFFER) -> Result<(), gpio::Error> {
+    pub fn update(
+        &mut self,
+        display_buffer: &[u8; DISPLAY_BUFFER_SIZE],
+    ) -> Result<(), gpio::Error> {
         self.setup()?;
 
         self.dc.set_low()?; // command mode
@@ -242,11 +254,8 @@ where
             .unwrap();
         self.dc.set_high()?; // data mode
 
-        let mut display_buffer: [u8; DISPLAY_BUFFER_SIZE] = [0; DISPLAY_BUFFER_SIZE];
-        convert_image(input_buffer, &mut display_buffer);
-
         self.spi_device
-            .transaction(&mut [Operation::Write(&display_buffer)])
+            .transaction(&mut [Operation::Write(display_buffer)])
             .unwrap();
 
         self.dc.set_low()?; // end data mode

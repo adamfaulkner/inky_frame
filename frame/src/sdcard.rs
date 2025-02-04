@@ -5,10 +5,13 @@ use embedded_hal::digital::OutputPin;
 use embedded_hal::spi::SpiDevice;
 use embedded_sdmmc::{SdCard, TimeSource, Timestamp, VolumeIdx, VolumeManager};
 use rp_pico::hal::Timer;
-use zune_core::bytestream::ZReaderTrait;
 
-use crate::blink::{
-    blink_signals_loop, BLINK_ERR_3_SHORT, BLINK_ERR_4_SHORT, BLINK_ERR_5_SHORT, BLINK_ERR_6_SHORT,
+use crate::{
+    blink::{
+        blink_signals_loop, BLINK_ERR_3_SHORT, BLINK_ERR_4_SHORT, BLINK_ERR_5_SHORT,
+        BLINK_ERR_6_SHORT,
+    },
+    inky73::DISPLAY_BUFFER_SIZE,
 };
 
 struct FakeTime {}
@@ -44,20 +47,20 @@ impl<'a, SPI: embedded_hal::spi::SpiDevice> InkySdCard<'a, SPI> {
 
         let mut root_dir = volume.open_root_dir().unwrap();
         let file = root_dir
-            .open_file_in_dir("image.qoi", embedded_sdmmc::Mode::ReadOnly)
+            .open_file_in_dir("b.out", embedded_sdmmc::Mode::ReadOnly)
             .unwrap();
         file.length()
     }
 
-    pub fn read_image(&mut self, buf: &mut [u8; 4096], offset: usize) -> usize {
+    pub fn read_image(&mut self, buf: &mut [u8; DISPLAY_BUFFER_SIZE]) -> usize {
         let mut volume = self.vmgr.open_volume(VolumeIdx(0)).unwrap();
 
         let mut root_dir = volume.open_root_dir().unwrap();
         let mut file = root_dir
-            .open_file_in_dir("image.qoi", embedded_sdmmc::Mode::ReadOnly)
+            .open_file_in_dir("b.out", embedded_sdmmc::Mode::ReadOnly)
             .unwrap();
 
-        file.seek_from_start(offset as u32);
+        file.seek_from_start(0u32).unwrap();
 
         match file.read(buf) {
             Ok(read) => {
@@ -114,37 +117,5 @@ impl<'a, SPI: SpiDevice> SdCardReaderAdapter<'a, SPI> {
             sd_card: RefCell::new(sd_card),
             buf: RefCell::new([0; 4096]),
         }
-    }
-}
-
-impl<'a, SPI: embedded_hal::spi::SpiDevice> ZReaderTrait for SdCardReaderAdapter<'a, SPI> {
-    fn get_byte(&self, index: usize) -> Option<&u8> {
-        let mut sd_card_borrow = self.sd_card.borrow_mut();
-        {
-            let mut b = self.buf.borrow_mut();
-            sd_card_borrow.read_image(&mut b, index);
-        }
-
-        unsafe {
-            return Some(&self.buf.as_ptr().as_ref().unwrap()[0]);
-        }
-    }
-
-    fn get_slice(&self, index: core::ops::Range<usize>) -> Option<&[u8]> {
-        assert!(index.end - index.start <= 4096);
-
-        let mut sd_card_borrow = self.sd_card.borrow_mut();
-        {
-            let mut b = self.buf.borrow_mut();
-            sd_card_borrow.read_image(&mut b, index.start);
-        }
-        unsafe {
-            return Some(&self.buf.as_ptr().as_ref().unwrap()[0..(index.end - index.start)]);
-        }
-    }
-
-    fn get_len(&self) -> usize {
-        let mut sd_card_borrow = self.sd_card.borrow_mut();
-        sd_card_borrow.get_len() as usize
     }
 }
