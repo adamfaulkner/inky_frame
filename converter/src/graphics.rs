@@ -211,6 +211,15 @@ pub fn convert_image(
     image: &dyn GenericImageView<Pixel = Rgb<u8>>,
     output_buffer: &mut [u8; DISPLAY_BUFFER_SIZE],
 ) {
+    let left_border = (DISPLAY_WIDTH as u32 - image.width()) / 2;
+    let right_border = (image.width()) + left_border;
+    let top_border = (DISPLAY_HEIGHT as u32 - image.height()) / 2;
+    let bottom_border = (image.height()) + top_border;
+    dbg!(left_border);
+    dbg!(right_border);
+    dbg!(top_border);
+    dbg!(bottom_border);
+
     let mut row_a_error: [PixelError; DISPLAY_WIDTH] = [PixelError::default(); DISPLAY_WIDTH];
     let mut row_b_error: [PixelError; DISPLAY_WIDTH] = [PixelError::default(); DISPLAY_WIDTH];
     let mut row_c_error: [PixelError; DISPLAY_WIDTH] = [PixelError::default(); DISPLAY_WIDTH];
@@ -218,7 +227,7 @@ pub fn convert_image(
     let mut next_row_error = &mut row_b_error;
     let mut next_next_row_error = &mut row_c_error;
 
-    for i in 0..image.height() {
+    for i in 0..(DISPLAY_HEIGHT as u32) {
         // Swap the error rows and reset the next_row_error.
         if i > 0 {
             swap(&mut current_row_error, &mut next_row_error);
@@ -228,25 +237,44 @@ pub fn convert_image(
             }
         }
 
+        // If i is above or below its top margin, then use Clean
+        if i < top_border || i > bottom_border {
+            for j in 0..(DISPLAY_WIDTH as u32 / 2) {
+                output_buffer[(i * (DISPLAY_WIDTH as u32 / 2) + j) as usize] =
+                    inky_colors_to_output(InkyColor::Clean, InkyColor::Clean);
+            }
+            continue;
+        }
+
         // Note that j ranges over indexes in the display, rather than pixels in the source image.
         // Since each byte of display holds two pixels, we range over this / 2
-        for j in 0..(image.width() / 2) {
-            let inky_color_1 = convert_single_pixel(
-                i as usize,
-                (j * 2) as usize,
-                image,
-                current_row_error,
-                next_row_error,
-                next_next_row_error,
-            );
-            let inky_color_2 = convert_single_pixel(
-                i as usize,
-                ((j * 2) + 1) as usize,
-                image,
-                current_row_error,
-                next_row_error,
-                next_next_row_error,
-            );
+        // TODO: clean up crappy code
+
+        for j in 0..((DISPLAY_WIDTH / 2) as u32) {
+            let inky_color_1 = if (j * 2) < left_border || (j * 2) >= right_border {
+                InkyColor::Clean
+            } else {
+                convert_single_pixel(
+                    (i - top_border) as usize,
+                    ((j * 2) - left_border) as usize,
+                    image,
+                    current_row_error,
+                    next_row_error,
+                    next_next_row_error,
+                )
+            };
+            let inky_color_2 = if (j * 2 + 1) < left_border || (j * 2 + 1) >= right_border {
+                InkyColor::Clean
+            } else {
+                convert_single_pixel(
+                    (i - top_border) as usize,
+                    (((j * 2) + 1) - left_border) as usize,
+                    image,
+                    current_row_error,
+                    next_row_error,
+                    next_next_row_error,
+                )
+            };
 
             let output = inky_colors_to_output(inky_color_1, inky_color_2);
             output_buffer[(i * (DISPLAY_WIDTH as u32 / 2) + j) as usize] = output;
