@@ -3,15 +3,21 @@ use core::{
     ops::{Add, AddAssign, Div, Mul},
 };
 
-static PALETTE: [Rgb888; 8] = [
-    Rgb888::new(0, 0, 0),
-    Rgb888::new(255, 255, 255),
-    Rgb888::new(0, 255, 0),
-    Rgb888::new(0, 0, 255),
-    Rgb888::new(255, 0, 0),
-    Rgb888::new(255, 255, 0),
-    Rgb888::new(255, 128, 0),
-    Rgb888::new(220, 180, 200),
+use image::{GenericImageView, Rgb};
+
+pub const DISPLAY_WIDTH: usize = 800;
+pub const DISPLAY_HEIGHT: usize = 480;
+pub const DISPLAY_BUFFER_SIZE: usize = 800 * 480 / 2;
+
+static PALETTE: [Rgb<u8>; 8] = [
+    Rgb([0, 0, 0]),
+    Rgb([255, 255, 255]),
+    Rgb([0, 255, 0]),
+    Rgb([0, 0, 255]),
+    Rgb([255, 0, 0]),
+    Rgb([255, 255, 0]),
+    Rgb([255, 128, 0]),
+    Rgb([220, 180, 200]),
 ];
 
 #[derive(Copy, Clone)]
@@ -68,20 +74,20 @@ impl AddAssign for PixelError {
     }
 }
 
-fn error_between_colors(from: Rgb888, to: Rgb888) -> PixelError {
+fn error_between_colors(from: Rgb<u8>, to: Rgb<u8>) -> PixelError {
     PixelError {
-        r: ((from.r() as i16) - (to.r() as i16)).min(255).max(-255),
-        g: ((from.g() as i16) - (to.g() as i16)).min(255).max(-255),
-        b: ((from.b() as i16) - (to.b() as i16)).min(255).max(-255),
+        r: ((from[0] as i16) - (to[0] as i16)).min(255).max(-255),
+        g: ((from[1] as i16) - (to[1] as i16)).min(255).max(-255),
+        b: ((from[2] as i16) - (to[2] as i16)).min(255).max(-255),
     }
 }
 
-fn add_error(from: Rgb888, err: PixelError) -> Rgb888 {
-    Rgb888::new(
-        (from.r() as i16 + err.r).max(0).min(255) as u8,
-        (from.g() as i16 + err.g).max(0).min(255) as u8,
-        (from.b() as i16 + err.b).max(0).min(255) as u8,
-    )
+fn add_error(from: Rgb<u8>, err: PixelError) -> Rgb<u8> {
+    Rgb::from([
+        (from[0] as i16 + err.r).max(0).min(255) as u8,
+        (from[1] as i16 + err.g).max(0).min(255) as u8,
+        (from[2] as i16 + err.b).max(0).min(255) as u8,
+    ])
 }
 
 #[derive(Clone, Copy)]
@@ -123,22 +129,22 @@ impl InkyColor {
         }
     }
 
-    fn to_rgb888(self) -> Rgb888 {
+    fn to_rgb(self) -> Rgb<u8> {
         PALETTE[self.to_color_number() as usize]
     }
 
-    fn error_from(self, from: Rgb888) -> PixelError {
-        error_between_colors(from, self.to_rgb888())
+    fn error_from(self, from: Rgb<u8>) -> PixelError {
+        error_between_colors(from, self.to_rgb())
     }
 }
 
-fn color_distance_sq(in1: Rgb888, in2: Rgb888) -> i32 {
-    ((in1.r() as i32 - in2.r() as i32) as i32).pow(2)
-        + ((in1.g() as i32 - in2.g() as i32) as i32).pow(2)
-        + ((in1.b() as i32 - in2.b() as i32) as i32).pow(2)
+fn color_distance_sq(in1: Rgb<u8>, in2: Rgb<u8>) -> i32 {
+    ((in1[0] as i32 - in2[0] as i32) as i32).pow(2)
+        + ((in1[1] as i32 - in2[1] as i32) as i32).pow(2)
+        + ((in1[2] as i32 - in2[2] as i32) as i32).pow(2)
 }
 
-fn closest_color(input: Rgb888) -> (InkyColor, PixelError) {
+fn closest_color(input: Rgb<u8>) -> (InkyColor, PixelError) {
     let color_idx = PALETTE
         .iter()
         .enumerate()
@@ -157,17 +163,12 @@ fn inky_colors_to_output(in1: InkyColor, in2: InkyColor) -> u8 {
 fn convert_single_pixel(
     i: usize,
     j: usize,
-    bmp: &Bmp<Rgb888>,
+    image: &dyn GenericImageView<Pixel = Rgb<u8>>,
     current_row_error: &mut [PixelError; DISPLAY_WIDTH],
     next_row_error: &mut [PixelError; DISPLAY_WIDTH],
     next_next_row_error: &mut [PixelError; DISPLAY_WIDTH],
 ) -> InkyColor {
-    let pixel = bmp
-        .pixel(Point {
-            y: i as i32,
-            x: j as i32,
-        })
-        .unwrap();
+    let pixel = image.get_pixel(j as u32, i as u32);
 
     let accumulated_error = current_row_error[j];
     let (inky_color, new_error) = closest_color(add_error(pixel, accumulated_error));
@@ -206,16 +207,10 @@ fn convert_single_pixel(
     inky_color
 }
 
-pub fn convert_image<'a, SPI: embedded_hal::spi::SpiDevice>(
-    sd_card: InkySdCard<'a, SPI>,
+pub fn convert_image(
+    image: &dyn GenericImageView<Pixel = Rgb<u8>>,
     output_buffer: &mut [u8; DISPLAY_BUFFER_SIZE],
 ) {
-    let mut read_buf: [u8; 4096] = [0; 4096];
-    let reader_adapter = SdCardReaderAdapter::new(sd_card);
-    let qoi_decoder = QoiDecoder::new(reader_adapter);
-
-    let read_bytes = sd_card.read_image(&mut read_buf);
-
     let mut row_a_error: [PixelError; DISPLAY_WIDTH] = [PixelError::default(); DISPLAY_WIDTH];
     let mut row_b_error: [PixelError; DISPLAY_WIDTH] = [PixelError::default(); DISPLAY_WIDTH];
     let mut row_c_error: [PixelError; DISPLAY_WIDTH] = [PixelError::default(); DISPLAY_WIDTH];
@@ -223,7 +218,7 @@ pub fn convert_image<'a, SPI: embedded_hal::spi::SpiDevice>(
     let mut next_row_error = &mut row_b_error;
     let mut next_next_row_error = &mut row_c_error;
 
-    for i in 0..qoi_header.height() {
+    for i in 0..image.height() {
         // Swap the error rows and reset the next_row_error.
         if i > 0 {
             swap(&mut current_row_error, &mut next_row_error);
@@ -235,11 +230,11 @@ pub fn convert_image<'a, SPI: embedded_hal::spi::SpiDevice>(
 
         // Note that j ranges over indexes in the display, rather than pixels in the source image.
         // Since each byte of display holds two pixels, we range over this / 2
-        for j in 0..(qoi_header.width() / 2) {
+        for j in 0..(image.width() / 2) {
             let inky_color_1 = convert_single_pixel(
                 i as usize,
                 (j * 2) as usize,
-                &bmp,
+                image,
                 current_row_error,
                 next_row_error,
                 next_next_row_error,
@@ -247,7 +242,7 @@ pub fn convert_image<'a, SPI: embedded_hal::spi::SpiDevice>(
             let inky_color_2 = convert_single_pixel(
                 i as usize,
                 ((j * 2) + 1) as usize,
-                &bmp,
+                image,
                 current_row_error,
                 next_row_error,
                 next_next_row_error,
