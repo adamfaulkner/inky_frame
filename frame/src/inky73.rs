@@ -4,8 +4,8 @@ use cortex_m::asm::nop;
 
 use crate::{
     blink::{
-        blink_signals, blink_signals_loop, BLINK_ERR_3_SHORT, BLINK_OK_LONG, BLINK_OK_SHORT_LONG,
-        BLINK_OK_SHORT_SHORT_LONG,
+        blink_signals, blink_signals_loop, BLINK_ERR_3_SHORT, BLINK_ERR_4_SHORT, BLINK_ERR_5_SHORT,
+        BLINK_ERR_6_SHORT, BLINK_OK_LONG, BLINK_OK_SHORT_LONG, BLINK_OK_SHORT_SHORT_LONG,
     },
     sdcard::InkySdCard,
 };
@@ -89,6 +89,7 @@ where
     >,
 
     led_pin: gpio::Pin<DynPinId, gpio::FunctionSioOutput, gpio::PullDown>,
+    setup_complete: bool,
 }
 
 // Copied from inky73.cpp
@@ -154,6 +155,7 @@ where
             delay,
             led_pin: pins.gpio6.into_push_pull_output().into_dyn_pin(),
             shift_register,
+            setup_complete: false,
         }
     }
 
@@ -189,23 +191,55 @@ where
         self.command(AGID, &[0x00])?;
         self.command(PWS, &[0x2F])?;
         self.command(CCSET, &[0x00])?;
-        self.command(TSSET, &[0x00])
+        self.command(TSSET, &[0x00])?;
+        self.setup_complete = true;
+        Ok(())
     }
 
-    pub fn setup_and_status_loop<T: embedded_hal::spi::SpiDevice>(
+    pub fn blink_err_code_loop(&mut self, sig: &[u8]) -> ! {
+        blink_signals_loop(&mut self.led_pin, &mut self.delay, sig)
+    }
+
+    pub fn display_image_index<T: embedded_hal::spi::SpiDevice>(
         &mut self,
         sdcard: &mut InkySdCard<T>,
+        index: usize,
     ) -> ! {
-        match self.setup() {
-            Ok(_) => (),
-            Err(_) => blink_signals_loop(&mut self.led_pin, &mut self.delay, &BLINK_ERR_3_SHORT),
+        if !self.setup_complete {
+            blink_signals(&mut self.led_pin, &mut self.delay, &BLINK_OK_SHORT_LONG);
+            blink_signals_loop(&mut self.led_pin, &mut self.delay, &BLINK_ERR_3_SHORT)
         }
 
-        blink_signals(&mut self.led_pin, &mut self.delay, &BLINK_OK_LONG);
-        blink_signals(&mut self.led_pin, &mut self.delay, &BLINK_OK_LONG);
+        blink_signals(&mut self.led_pin, &mut self.delay, &BLINK_OK_SHORT_LONG);
+        // blink_signals(&mut self.led_pin, &mut self.delay, &BLINK_OK_LONG);
 
         let mut input_buffer = [0u8; DISPLAY_BUFFER_SIZE];
-        sdcard.read_image(&mut input_buffer);
+        match sdcard.read_file_with_index(index, &mut input_buffer) {
+            Ok(_) => (),
+            Err(0) => self.blink_err_code_loop(&BLINK_ERR_3_SHORT),
+            Err(1) => self.blink_err_code_loop(&BLINK_ERR_3_SHORT),
+            Err(2) => self.blink_err_code_loop(&BLINK_ERR_4_SHORT),
+            Err(3) => self.blink_err_code_loop(&BLINK_ERR_3_SHORT),
+            Err(4) => self.blink_err_code_loop(&BLINK_ERR_3_SHORT),
+            // It's this one
+            Err(5) => self.blink_err_code_loop(&BLINK_ERR_6_SHORT),
+            Err(_) => self.blink_err_code_loop(&BLINK_ERR_3_SHORT),
+        };
+
+        blink_signals(&mut self.led_pin, &mut self.delay, &BLINK_OK_SHORT_LONG);
+
+        let mut something_found = false;
+        for b in input_buffer.iter() {
+            if *b != 0 {
+                something_found = true;
+                break;
+            }
+        }
+        blink_signals(&mut self.led_pin, &mut self.delay, &BLINK_OK_SHORT_LONG);
+
+        if !something_found {
+            self.blink_err_code_loop(&BLINK_ERR_5_SHORT)
+        }
 
         match self.update(&input_buffer) {
             Ok(_) => blink_signals_loop(
@@ -223,6 +257,7 @@ where
 
     pub fn busy_wait(&mut self) {
         while self.is_busy() {
+            // TODO: can we do something smarter here
             nop();
         }
     }

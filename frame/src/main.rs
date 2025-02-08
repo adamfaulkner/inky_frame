@@ -13,7 +13,7 @@
 use core::cell::RefCell;
 
 use blink::{
-    blink_signals, blink_signals_loop, BLINK_OK_LONG, BLINK_OK_SHORT_LONG,
+    blink_signals, blink_signals_loop, BLINK_ERR_3_SHORT, BLINK_OK_LONG, BLINK_OK_SHORT_LONG,
     BLINK_OK_SHORT_SHORT_LONG,
 };
 use embedded_hal::delay::DelayNs;
@@ -100,6 +100,7 @@ fn main() -> ! {
 
     let mut delay = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
     let mut led_pin = pins.gpio11.into_push_pull_output();
+    let mut led_pin_2 = pins.gpio12.into_push_pull_output();
 
     let spi_rc = RefCell::new(spi);
     let inky_pins: InkyPins = InkyPins {
@@ -119,7 +120,13 @@ fn main() -> ! {
     blink_signals(&mut led_pin, &mut delay, &BLINK_OK_SHORT_LONG);
 
     let mut inky = Inky73::new(frame_spi_device, inky_pins, delay);
-    let mut sdcard = InkySdCard::new(sdcard_spi_device, delay, &mut led_pin);
+    let mut sdcard = InkySdCard::new(sdcard_spi_device, delay, &mut led_pin_2);
 
-    inky.setup_and_status_loop(&mut sdcard);
+    match inky.setup() {
+        Ok(_) => (),
+        Err(_) => inky.blink_err_code_loop(&BLINK_ERR_3_SHORT),
+    };
+    blink_signals(&mut led_pin, &mut delay, &BLINK_OK_SHORT_LONG);
+
+    inky.display_image_index(&mut sdcard, 0);
 }
