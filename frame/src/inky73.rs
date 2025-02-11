@@ -255,6 +255,10 @@ where
         return (self.shift_register.read() & 1) == 1;
     }
 
+    pub fn button_e_pressed(&mut self) -> bool {
+        return (self.shift_register.read() & 16) == 16;
+    }
+
     pub fn busy_wait(&mut self) {
         while self.is_busy() {
             // TODO: can we do something smarter here

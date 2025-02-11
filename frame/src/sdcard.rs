@@ -47,7 +47,14 @@ impl<'a, SPI: embedded_hal::spi::SpiDevice> InkySdCard<'a, SPI> {
         let mut root_dir = volume.open_root_dir().unwrap();
         // This is stupid, whatever.
         let mut num_files = 0;
-        root_dir.iterate_dir(|_| num_files += 1).unwrap();
+        root_dir
+            .iterate_dir(|f| {
+                if f.size == 0 {
+                    return;
+                }
+                num_files += 1;
+            })
+            .unwrap();
         num_files
     }
 
@@ -60,8 +67,7 @@ impl<'a, SPI: embedded_hal::spi::SpiDevice> InkySdCard<'a, SPI> {
         index: usize,
         buf: &mut [u8; DISPLAY_BUFFER_SIZE],
     ) -> Result<(), usize> {
-        // let real_index = index % self.get_number_of_files();
-        let real_index = index;
+        let real_index = index % self.get_number_of_files();
 
         let mut volume = match self.vmgr.open_volume(VolumeIdx(0)) {
             Ok(x) => x,
@@ -75,7 +81,8 @@ impl<'a, SPI: embedded_hal::spi::SpiDevice> InkySdCard<'a, SPI> {
         let mut file_idx = 0;
         let mut chosen_name = None;
         match root_dir.iterate_dir(|f| {
-            if f.name.base_name() == b"MAIN" {
+            // The sdcard library has a weird habit of including the volume label inside root_dir.iterate_dir
+            if f.size == 0 {
                 return;
             }
             if file_idx == real_index {

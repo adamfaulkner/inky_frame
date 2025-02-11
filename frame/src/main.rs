@@ -138,6 +138,11 @@ fn main() -> ! {
         }
 
         if inky.button_a_pressed() {
+            image_idx -= 1;
+            ready_to_draw = true;
+        }
+
+        if inky.button_e_pressed() {
             image_idx += 1;
             ready_to_draw = true;
         }
