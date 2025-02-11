@@ -28,7 +28,7 @@ use rp_pico::entry;
 #[allow(unused_imports)]
 use panic_halt as _i;
 
-use rp_pico::hal::gpio::bank0::{Gpio17, Gpio22};
+use rp_pico::hal::gpio::bank0::{Gpio17, Gpio2, Gpio22};
 use rp_pico::hal::gpio::{FunctionSioOutput, Pin, PullUp};
 // A shorter alias for the Peripheral Access Crate, which provides low-level
 // register access
@@ -121,6 +121,10 @@ fn main() -> ! {
 
     let mut inky = Inky73::new(frame_spi_device, inky_pins, delay);
     let mut sdcard = InkySdCard::new(sdcard_spi_device, delay, &mut led_pin_2);
+
+    // We want to hold it awake for now.
+    let mut hold_awake_pin: Pin<Gpio2, FunctionSioOutput, PullUp> = pins.gpio2.reconfigure();
+    hold_awake_pin.set_high().unwrap();
 
     match inky.setup() {
         Ok(_) => (),
