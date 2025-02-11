@@ -128,5 +128,19 @@ fn main() -> ! {
     };
     blink_signals(&mut led_pin, &mut delay, &BLINK_OK_SHORT_LONG);
 
-    inky.display_image_index(&mut sdcard, 0);
+    let mut image_idx = 0;
+    // False for testing only.
+    let mut ready_to_draw = false;
+    loop {
+        if ready_to_draw {
+            inky.display_image_index(&mut sdcard, image_idx);
+            ready_to_draw = false;
+        }
+
+        if inky.button_a_pressed() {
+            image_idx += 1;
+            ready_to_draw = true;
+        }
+        delay.delay_ms(10);
+    }
 }

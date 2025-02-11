@@ -204,7 +204,7 @@ where
         &mut self,
         sdcard: &mut InkySdCard<T>,
         index: usize,
-    ) -> ! {
+    ) -> () {
         if !self.setup_complete {
             blink_signals(&mut self.led_pin, &mut self.delay, &BLINK_OK_SHORT_LONG);
             blink_signals_loop(&mut self.led_pin, &mut self.delay, &BLINK_ERR_3_SHORT)
@@ -242,17 +242,17 @@ where
         }
 
         match self.update(&input_buffer) {
-            Ok(_) => blink_signals_loop(
-                &mut self.led_pin,
-                &mut self.delay,
-                &BLINK_OK_SHORT_SHORT_LONG,
-            ),
+            Ok(_) => (),
             Err(_) => blink_signals_loop(&mut self.led_pin, &mut self.delay, &BLINK_ERR_3_SHORT),
         }
     }
 
     pub fn is_busy(&mut self) -> bool {
         return (self.shift_register.read() & 128) == 0;
+    }
+
+    pub fn button_a_pressed(&mut self) -> bool {
+        return (self.shift_register.read() & 1) == 1;
     }
 
     pub fn busy_wait(&mut self) {
