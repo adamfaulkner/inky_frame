@@ -215,10 +215,6 @@ pub fn convert_image(
     let right_border = (image.width()) + left_border;
     let top_border = (DISPLAY_HEIGHT as u32 - image.height()) / 2;
     let bottom_border = (image.height()) + top_border;
-    dbg!(left_border);
-    dbg!(right_border);
-    dbg!(top_border);
-    dbg!(bottom_border);
 
     let mut row_a_error: [PixelError; DISPLAY_WIDTH] = [PixelError::default(); DISPLAY_WIDTH];
     let mut row_b_error: [PixelError; DISPLAY_WIDTH] = [PixelError::default(); DISPLAY_WIDTH];
@@ -238,7 +234,7 @@ pub fn convert_image(
         }
 
         // If i is above or below its top margin, then use Clean
-        if i < top_border || i > bottom_border {
+        if i < top_border || i >= bottom_border {
             for j in 0..(DISPLAY_WIDTH as u32 / 2) {
                 output_buffer[(i * (DISPLAY_WIDTH as u32 / 2) + j) as usize] =
                     inky_colors_to_output(InkyColor::Clean, InkyColor::Clean);

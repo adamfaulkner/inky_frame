@@ -5,7 +5,7 @@ use std::{
 };
 
 use graphics::{convert_image, DISPLAY_BUFFER_SIZE, DISPLAY_HEIGHT, DISPLAY_WIDTH};
-use image::{ImageReader, RgbImage};
+use image::{DynamicImage, GenericImageView, ImageDecoder, ImageReader, RgbImage};
 
 mod graphics;
 
@@ -21,11 +21,16 @@ fn main() {
             continue;
         }
 
-        let img: RgbImage = ImageReader::open(path)
-            .unwrap()
-            .decode()
-            .unwrap()
+        // Handle orientation correctly
+        let mut decoder = ImageReader::open(path).unwrap().into_decoder().unwrap();
+        let orientation = decoder.orientation().unwrap();
+
+        let mut dynamic_image: DynamicImage = DynamicImage::from_decoder(decoder).unwrap();
+        dynamic_image.apply_orientation(orientation);
+
+        let img: RgbImage = dynamic_image
             .thumbnail(DISPLAY_WIDTH as u32, DISPLAY_HEIGHT as u32)
+            .adjust_contrast(30.0)
             .into();
         let mut output_buffer = [0u8; DISPLAY_BUFFER_SIZE];
         convert_image(&img, &mut output_buffer);
