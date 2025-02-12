@@ -206,12 +206,10 @@ where
         index: usize,
     ) -> () {
         if !self.setup_complete {
-            blink_signals(&mut self.led_pin, &mut self.delay, &BLINK_OK_SHORT_LONG);
             blink_signals_loop(&mut self.led_pin, &mut self.delay, &BLINK_ERR_3_SHORT)
         }
 
-        blink_signals(&mut self.led_pin, &mut self.delay, &BLINK_OK_SHORT_LONG);
-        // blink_signals(&mut self.led_pin, &mut self.delay, &BLINK_OK_LONG);
+        self.led_pin.set_high().unwrap();
 
         let mut input_buffer = [0u8; DISPLAY_BUFFER_SIZE];
         match sdcard.read_file_with_index(index, &mut input_buffer) {
@@ -226,8 +224,6 @@ where
             Err(_) => self.blink_err_code_loop(&BLINK_ERR_3_SHORT),
         };
 
-        blink_signals(&mut self.led_pin, &mut self.delay, &BLINK_OK_SHORT_LONG);
-
         let mut something_found = false;
         for b in input_buffer.iter() {
             if *b != 0 {
@@ -235,14 +231,15 @@ where
                 break;
             }
         }
-        blink_signals(&mut self.led_pin, &mut self.delay, &BLINK_OK_SHORT_LONG);
 
         if !something_found {
             self.blink_err_code_loop(&BLINK_ERR_5_SHORT)
         }
 
         match self.update(&input_buffer) {
-            Ok(_) => (),
+            Ok(_) => {
+                self.led_pin.set_low().unwrap();
+            }
             Err(_) => blink_signals_loop(&mut self.led_pin, &mut self.delay, &BLINK_ERR_3_SHORT),
         }
     }

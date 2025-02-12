@@ -41,9 +41,11 @@ use rp_pico::hal;
 mod blink;
 mod inky73;
 mod psram_display;
+mod rtc;
 mod sdcard;
 // Embed the `Hz` function/trait:
 use fugit::RateExtU32;
+use rtc::Pcf85063a;
 use sdcard::InkySdCard;
 
 #[entry]
@@ -59,6 +61,11 @@ fn main() -> ! {
         sio.gpio_bank0,
         &mut pac.RESETS,
     );
+
+    // We want to hold it awake until we finish the transaction..
+    let mut hold_awake_pin: Pin<Gpio2, FunctionSioOutput, PullUp> = pins.gpio2.reconfigure();
+    hold_awake_pin.set_high().unwrap();
+
     let spi_sclk: gpio::Pin<_, gpio::FunctionSpi, gpio::PullNone> = pins.gpio18.reconfigure();
     let spi_mosi: gpio::Pin<_, gpio::FunctionSpi, gpio::PullNone> = pins.gpio19.reconfigure();
     let spi_miso: gpio::Pin<_, gpio::FunctionSpi, gpio::PullUp> = pins.gpio16.reconfigure();
@@ -101,6 +108,20 @@ fn main() -> ! {
     let mut delay = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
     let mut led_pin = pins.gpio11.into_push_pull_output();
     let mut led_pin_2 = pins.gpio12.into_push_pull_output();
+    let mut led_pin_3 = pins.gpio13.into_push_pull_output();
+
+    // Configure the external real time clock, which uses i2c
+    let sda: Pin<gpio::bank0::Gpio4, gpio::FunctionI2c, gpio::PullUp> = pins.gpio4.reconfigure();
+    let scl: Pin<gpio::bank0::Gpio5, gpio::FunctionI2c, gpio::PullUp> = pins.gpio5.reconfigure();
+    let mut i2c = rp_pico::hal::I2C::i2c0(
+        pac.I2C0,
+        sda,
+        scl,
+        400.kHz(),
+        &mut pac.RESETS,
+        &clocks.peripheral_clock,
+    );
+    let mut rtc = Pcf85063a::new(&mut i2c);
 
     let spi_rc = RefCell::new(spi);
     let inky_pins: InkyPins = InkyPins {
@@ -117,39 +138,36 @@ fn main() -> ! {
     let sdcard_cs: Pin<Gpio22, FunctionSioOutput, PullUp> = pins.gpio22.reconfigure();
     let sdcard_spi_device = RefCellDevice::new(&spi_rc, sdcard_cs, delay).unwrap();
 
-    blink_signals(&mut led_pin, &mut delay, &BLINK_OK_SHORT_LONG);
-
     let mut inky = Inky73::new(frame_spi_device, inky_pins, delay);
     let mut sdcard = InkySdCard::new(sdcard_spi_device, delay, &mut led_pin_2);
-
-    // We want to hold it awake for now.
-    let mut hold_awake_pin: Pin<Gpio2, FunctionSioOutput, PullUp> = pins.gpio2.reconfigure();
-    hold_awake_pin.set_high().unwrap();
 
     match inky.setup() {
         Ok(_) => (),
         Err(_) => inky.blink_err_code_loop(&BLINK_ERR_3_SHORT),
     };
-    blink_signals(&mut led_pin, &mut delay, &BLINK_OK_SHORT_LONG);
 
-    let mut image_idx = 0;
-    // False for testing only.
-    let mut ready_to_draw = false;
+    let mut ready_to_draw = true;
     loop {
-        if ready_to_draw {
-            inky.display_image_index(&mut sdcard, image_idx);
-            ready_to_draw = false;
-        }
-
+        let mut image_idx = rtc.get_ram_byte();
         if inky.button_a_pressed() {
             image_idx -= 1;
+            rtc.put_ram_byte(image_idx);
             ready_to_draw = true;
         }
 
         if inky.button_e_pressed() {
             image_idx += 1;
+            rtc.put_ram_byte(image_idx);
             ready_to_draw = true;
         }
-        delay.delay_ms(10);
+
+        // This ready_to_draw stuff is only relevant on USB power, as power is withdrawn after one iteration of this loop.
+        if ready_to_draw {
+            inky.display_image_index(&mut sdcard, image_idx as usize);
+            ready_to_draw = false;
+        }
+        // Sleep now if on battery
+        hold_awake_pin.set_low().unwrap();
+        delay.delay_ms(100);
     }
 }

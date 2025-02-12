@@ -222,7 +222,7 @@ dependencies = [
  "embedded-hal-bus",
  "embedded-sdmmc",
  "fugit",
- "nb 0.1.3",
+ "nb 1.1.0",
  "panic-halt",
  "portable-atomic",
  "rp-pico",
