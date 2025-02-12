@@ -161,11 +161,21 @@ fn main() -> ! {
             ready_to_draw = true;
         }
 
+        if inky.timer_went_off() {
+            image_idx += 1;
+            rtc.put_ram_byte(image_idx);
+            ready_to_draw = true;
+            rtc.clear_timer_flag();
+        }
+
         // This ready_to_draw stuff is only relevant on USB power, as power is withdrawn after one iteration of this loop.
         if ready_to_draw {
             inky.display_image_index(&mut sdcard, image_idx as usize);
             ready_to_draw = false;
+            // Set the timer so that we'll wake if on battery, and advance the draw index.
+            rtc.set_minutes_timer(5);
         }
+
         // Sleep now if on battery
         hold_awake_pin.set_low().unwrap();
         delay.delay_ms(100);

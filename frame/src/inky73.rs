@@ -256,6 +256,10 @@ where
         return (self.shift_register.read() & 16) == 16;
     }
 
+    pub fn timer_went_off(&mut self) -> bool {
+        return (self.shift_register.read() & 32) == 32;
+    }
+
     pub fn busy_wait(&mut self) {
         while self.is_busy() {
             // TODO: can we do something smarter here
