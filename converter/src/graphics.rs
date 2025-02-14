@@ -1,3 +1,4 @@
+/// Contains logic to convert an input image into the 8 color format supported by the inky frame.
 use core::{
     mem::swap,
     ops::{Add, AddAssign, Div, Mul},
@@ -5,21 +6,31 @@ use core::{
 
 use image::{GenericImageView, Rgb};
 
+// Inky frame's display has this many pixels.
 pub const DISPLAY_WIDTH: usize = 800;
 pub const DISPLAY_HEIGHT: usize = 480;
+// However, the inky frame represents two pixels with one byte, so it has half the buffer size.
 pub const DISPLAY_BUFFER_SIZE: usize = 800 * 480 / 2;
 
-static PALETTE: [Rgb<u8>; 8] = [
-    Rgb([0, 0, 0]),
-    Rgb([255, 255, 255]),
-    Rgb([0, 255, 0]),
-    Rgb([0, 0, 255]),
-    Rgb([255, 0, 0]),
-    Rgb([255, 255, 0]),
-    Rgb([255, 128, 0]),
-    Rgb([220, 180, 200]),
-];
+/// InkyColor represents the different colors supported by the inky frame.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct InkyColor(Rgb<u8>);
 
+/// These are the 8 colors supported by the inky frame, in order.
+const BLACK: InkyColor = InkyColor(image::Rgb([0, 0, 0]));
+const WHITE: InkyColor = InkyColor(image::Rgb([255, 255, 255]));
+const GREEN: InkyColor = InkyColor(image::Rgb([0, 255, 0]));
+const BLUE: InkyColor = InkyColor(image::Rgb([0, 0, 255]));
+const RED: InkyColor = InkyColor(image::Rgb([255, 0, 0]));
+const YELLOW: InkyColor = InkyColor(image::Rgb([255, 255, 0]));
+const ORANGE: InkyColor = InkyColor(image::Rgb([255, 128, 0]));
+const CLEAN: InkyColor = InkyColor(image::Rgb([220, 180, 200]));
+
+/// The palette of colors supported by the inky frame, in order.
+static PALETTE: [InkyColor; 8] = [BLACK, WHITE, GREEN, BLUE, RED, YELLOW, ORANGE, CLEAN];
+
+/// PixelError tracks an accumulated difference between requested colors and the closest color in
+/// the palette during the dithering operation..
 #[derive(Copy, Clone)]
 pub struct PixelError {
     r: i16,
@@ -44,7 +55,6 @@ impl Mul<i16> for PixelError {
     }
 }
 
-// Note: I bet this compiles badly when it could just be a >> for 16
 impl Div<i16> for PixelError {
     type Output = Self;
 
@@ -90,47 +100,36 @@ fn add_error(from: Rgb<u8>, err: PixelError) -> Rgb<u8> {
     ])
 }
 
-#[derive(Clone, Copy)]
-enum InkyColor {
-    Black,
-    White,
-    Green,
-    Blue,
-    Red,
-    Yellow,
-    Orange,
-    Clean,
-}
-
 impl InkyColor {
     fn to_color_number(self) -> u8 {
         match self {
-            InkyColor::Black => 0,
-            InkyColor::White => 1,
-            InkyColor::Green => 2,
-            InkyColor::Blue => 3,
-            InkyColor::Red => 4,
-            InkyColor::Yellow => 5,
-            InkyColor::Orange => 6,
-            InkyColor::Clean => 7,
+            BLACK => 0,
+            WHITE => 1,
+            GREEN => 2,
+            BLUE => 3,
+            RED => 4,
+            YELLOW => 5,
+            ORANGE => 6,
+            CLEAN => 7,
+            _ => panic!("Invalid color number given to to_color_number"),
         }
     }
     fn from_color_number(i: usize) -> Self {
         match i {
-            0 => InkyColor::Black,
-            1 => InkyColor::White,
-            2 => InkyColor::Green,
-            3 => InkyColor::Blue,
-            4 => InkyColor::Red,
-            5 => InkyColor::Yellow,
-            6 => InkyColor::Orange,
-            7 => InkyColor::Clean,
+            0 => BLACK,
+            1 => WHITE,
+            2 => GREEN,
+            3 => BLUE,
+            4 => RED,
+            5 => YELLOW,
+            6 => ORANGE,
+            7 => CLEAN,
             _ => panic!("Invalid color number given to from_color_number"),
         }
     }
 
     fn to_rgb(self) -> Rgb<u8> {
-        PALETTE[self.to_color_number() as usize]
+        self.0
     }
 
     fn error_from(self, from: Rgb<u8>) -> PixelError {
@@ -148,7 +147,7 @@ fn closest_color(input: Rgb<u8>) -> (InkyColor, PixelError) {
     let color_idx = PALETTE
         .iter()
         .enumerate()
-        .min_by_key(|(_, color)| color_distance_sq(input, **color))
+        .min_by_key(|(_, color)| color_distance_sq(input, color.0))
         .unwrap()
         .0;
 
@@ -160,6 +159,7 @@ fn inky_colors_to_output(in1: InkyColor, in2: InkyColor) -> u8 {
     (in1.to_color_number() << 4) | (in2.to_color_number())
 }
 
+/// Convert a single pixel to an InkyColor, propagating the error forward.
 fn convert_single_pixel(
     i: usize,
     j: usize,
@@ -172,11 +172,11 @@ fn convert_single_pixel(
 
     let accumulated_error = current_row_error[j];
     let (inky_color, new_error) = closest_color(add_error(pixel, accumulated_error));
-    //let (inky_color, new_error) = closest_color(pixel);
 
     // Propagate the new error forward.
 
-    // Floyd-Steinberg
+    // Floyd-Steinberg - I found that Atkinson looked a bit better, but you could use this if you
+    // wanted.
     /*
     let new_error_div = new_error / 16;
     current_row_error[j + 1] += new_error_div * 7;
@@ -237,7 +237,7 @@ pub fn convert_image(
         if i < top_border || i >= bottom_border {
             for j in 0..(DISPLAY_WIDTH as u32 / 2) {
                 output_buffer[(i * (DISPLAY_WIDTH as u32 / 2) + j) as usize] =
-                    inky_colors_to_output(InkyColor::Clean, InkyColor::Clean);
+                    inky_colors_to_output(CLEAN, CLEAN);
             }
             continue;
         }
@@ -248,7 +248,7 @@ pub fn convert_image(
 
         for j in 0..((DISPLAY_WIDTH / 2) as u32) {
             let inky_color_1 = if (j * 2) < left_border || (j * 2) >= right_border {
-                InkyColor::Clean
+                CLEAN
             } else {
                 convert_single_pixel(
                     (i - top_border) as usize,
@@ -260,7 +260,7 @@ pub fn convert_image(
                 )
             };
             let inky_color_2 = if (j * 2 + 1) < left_border || (j * 2 + 1) >= right_border {
-                InkyColor::Clean
+                CLEAN
             } else {
                 convert_single_pixel(
                     (i - top_border) as usize,

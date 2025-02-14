@@ -9,6 +9,7 @@ use image::{DynamicImage, ImageDecoder, ImageReader, RgbImage};
 
 mod graphics;
 
+/// Iterate over the input directory and convert each image to an InkyFrame format.
 fn main() {
     let args: Vec<String> = env::args().collect();
     let input_file_base_path = &args[1];
@@ -21,13 +22,15 @@ fn main() {
             continue;
         }
 
-        // Handle orientation correctly
+        // Handle orientation correctly. Some file formats allow rotation without actually rotating
+        // the image data.
         let mut decoder = ImageReader::open(path).unwrap().into_decoder().unwrap();
         let orientation = decoder.orientation().unwrap();
 
         let mut dynamic_image: DynamicImage = DynamicImage::from_decoder(decoder).unwrap();
         dynamic_image.apply_orientation(orientation);
 
+        // In my tests, I've found that increasing contrast can improve the quality of the image.
         let img: RgbImage = dynamic_image
             .thumbnail(DISPLAY_WIDTH as u32, DISPLAY_HEIGHT as u32)
             .adjust_contrast(30.0)
