@@ -5,7 +5,7 @@ use std::{
 };
 
 use graphics::{convert_image, DISPLAY_BUFFER_SIZE, DISPLAY_HEIGHT, DISPLAY_WIDTH};
-use image::{DynamicImage, GenericImageView, ImageDecoder, ImageReader, RgbImage};
+use image::{DynamicImage, ImageDecoder, ImageReader, RgbImage};
 
 mod graphics;
 
