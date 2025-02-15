@@ -12,10 +12,7 @@
 
 use core::cell::RefCell;
 
-use blink::{
-    blink_signals, blink_signals_loop, BLINK_ERR_3_SHORT, BLINK_OK_LONG, BLINK_OK_SHORT_LONG,
-    BLINK_OK_SHORT_SHORT_LONG,
-};
+use blink::BLINK_ERR_3_SHORT;
 use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::OutputPin;
 use embedded_hal_bus::spi::RefCellDevice;
@@ -106,9 +103,7 @@ fn main() -> ! {
     );
 
     let mut delay = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
-    let mut led_pin = pins.gpio11.into_push_pull_output();
-    let mut led_pin_2 = pins.gpio12.into_push_pull_output();
-    let mut led_pin_3 = pins.gpio13.into_push_pull_output();
+    let mut sdcard_led_pin = pins.gpio12.into_push_pull_output();
 
     // Configure the external real time clock, which uses i2c
     let sda: Pin<gpio::bank0::Gpio4, gpio::FunctionI2c, gpio::PullUp> = pins.gpio4.reconfigure();
@@ -139,7 +134,7 @@ fn main() -> ! {
     let sdcard_spi_device = RefCellDevice::new(&spi_rc, sdcard_cs, delay).unwrap();
 
     let mut inky = Inky73::new(frame_spi_device, inky_pins, delay);
-    let mut sdcard = InkySdCard::new(sdcard_spi_device, delay, &mut led_pin_2);
+    let mut sdcard = InkySdCard::new(sdcard_spi_device, delay, &mut sdcard_led_pin);
 
     match inky.setup() {
         Ok(_) => (),

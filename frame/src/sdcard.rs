@@ -3,14 +3,11 @@ use core::convert::Infallible;
 
 use embedded_hal::digital::OutputPin;
 use embedded_hal::spi::SpiDevice;
-use embedded_sdmmc::{File, SdCard, TimeSource, Timestamp, Volume, VolumeIdx, VolumeManager};
+use embedded_sdmmc::{SdCard, TimeSource, Timestamp, VolumeIdx, VolumeManager};
 use rp_pico::hal::Timer;
 
 use crate::{
-    blink::{
-        blink_signals_loop, BLINK_ERR_3_SHORT, BLINK_ERR_4_SHORT, BLINK_ERR_5_SHORT,
-        BLINK_ERR_6_SHORT,
-    },
+    blink::blink_signals_loop,
     inky73::DISPLAY_BUFFER_SIZE,
 };
 

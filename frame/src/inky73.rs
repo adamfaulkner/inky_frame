@@ -1,11 +1,11 @@
-use core::{cell::RefCell, convert::Infallible};
+use core::convert::Infallible;
 
 use cortex_m::asm::nop;
 
 use crate::{
     blink::{
-        blink_signals, blink_signals_loop, BLINK_ERR_3_SHORT, BLINK_ERR_4_SHORT, BLINK_ERR_5_SHORT,
-        BLINK_ERR_6_SHORT, BLINK_OK_LONG, BLINK_OK_SHORT_LONG, BLINK_OK_SHORT_SHORT_LONG,
+        blink_signals_loop, BLINK_ERR_3_SHORT, BLINK_ERR_4_SHORT, BLINK_ERR_5_SHORT,
+        BLINK_ERR_6_SHORT,
     },
     sdcard::InkySdCard,
 };
@@ -14,12 +14,11 @@ use embedded_hal::{
     digital::{InputPin, OutputPin},
     spi::{Operation, SpiBus, SpiDevice},
 };
-use embedded_hal_bus::spi::RefCellDevice;
 use rp_pico::hal::{
     gpio::{
         self,
-        bank0::{Gpio10, Gpio17, Gpio27, Gpio28, Gpio6, Gpio8, Gpio9},
-        DynPinId, FunctionSioInput, FunctionSioOutput, Pin, PullDown, PullUp,
+        bank0::{Gpio10, Gpio27, Gpio28, Gpio6, Gpio8, Gpio9},
+        DynPinId, FunctionSioInput, FunctionSioOutput, Pin, PullDown,
     },
     Timer,
 };

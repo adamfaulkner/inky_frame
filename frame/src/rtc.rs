@@ -1,4 +1,4 @@
-use embedded_hal::i2c::{ErrorType, I2c, Operation, SevenBitAddress};
+use embedded_hal::i2c::{I2c, Operation, SevenBitAddress};
 use rp_pico::hal::i2c::Error;
 
 // Lots of this code copied from
