@@ -146,6 +146,10 @@ fn color_distance_sq(in1: Rgb<u8>, in2: Rgb<u8>) -> i32 {
 fn closest_color(input: Rgb<u8>) -> (InkyColor, PixelError) {
     let color_idx = PALETTE
         .iter()
+        // CLEAN has some weird behavior when the frame is on battery power. On USB power, CLEAN
+        // appears as expected, but on battery power, it is greenish, with an increasing green tint
+        // towards the bottom of the screen. To avoid this, we just exclude it from the palette.
+        .filter(|color| *color != &CLEAN)
         .enumerate()
         .min_by_key(|(_, color)| color_distance_sq(input, color.0))
         .unwrap()
@@ -166,7 +170,7 @@ fn convert_single_pixel(
     image: &dyn GenericImageView<Pixel = Rgb<u8>>,
     current_row_error: &mut [PixelError; DISPLAY_WIDTH],
     next_row_error: &mut [PixelError; DISPLAY_WIDTH],
-    next_next_row_error: &mut [PixelError; DISPLAY_WIDTH],
+    _next_next_row_error: &mut [PixelError; DISPLAY_WIDTH],
 ) -> InkyColor {
     let pixel = image.get_pixel(j as u32, i as u32);
 
@@ -175,21 +179,19 @@ fn convert_single_pixel(
 
     // Propagate the new error forward.
 
-    // Floyd-Steinberg - I found that Atkinson looked a bit better, but you could use this if you
-    // wanted.
-    /*
+    // Floyd-Steinberg dithering
     let new_error_div = new_error / 16;
-    current_row_error[j + 1] += new_error_div * 7;
     if j > 0 {
         next_row_error[j - 1] += new_error_div * 3;
     }
     next_row_error[j] += new_error_div * 5;
     if j < DISPLAY_WIDTH - 1 {
+        current_row_error[j + 1] += new_error_div * 7;
         next_row_error[j + 1] += new_error_div;
     }
-    */
 
-    // Atkinson
+    // Atkinson - this is another option, sometimes it looks better.
+    /*
     let new_error_div = new_error / 8;
     next_row_error[j] += new_error_div;
     next_next_row_error[j] += new_error_div;
@@ -203,6 +205,7 @@ fn convert_single_pixel(
     if j > 0 {
         next_row_error[j - 1] += new_error_div;
     }
+    */
 
     inky_color
 }

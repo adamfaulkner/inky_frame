@@ -43,6 +43,8 @@ use fugit::RateExtU32;
 use rtc::Pcf85063a;
 use sdcard::InkySdCard;
 
+const DELAY_MINUTES: u8 = 30;
+
 #[entry]
 fn main() -> ! {
     let mut pac = pac::Peripherals::take().unwrap();
@@ -165,12 +167,12 @@ fn main() -> ! {
             inky.display_image_index(&mut sdcard, image_idx as usize);
             ready_to_draw = false;
             // Set the timer so that we'll wake if on battery, and advance the draw index.
-            rtc.set_minutes_timer(5);
+            rtc.set_minutes_timer(DELAY_MINUTES);
         }
 
-        // TODO: does this work?
-        // Give the display a few more seconds to have access to power before sleeping.
-        delay.delay_ms(10000);
+        // Give the display a little extra time to have access to power before sleeping. It is
+        // unclear whether this is necessary.
+        delay.delay_ms(100);
 
         // Sleep now if on battery
         hold_awake_pin.set_low().unwrap();
