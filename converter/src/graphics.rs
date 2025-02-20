@@ -233,11 +233,11 @@ pub fn convert_image(
             }
         }
 
-        // If i is above or below its top margin, then use Clean
+        // If i is above or below its top margin, then use WHITE
         if i < top_border || i >= bottom_border {
             for j in 0..(DISPLAY_WIDTH as u32 / 2) {
                 output_buffer[(i * (DISPLAY_WIDTH as u32 / 2) + j) as usize] =
-                    inky_colors_to_output(CLEAN, CLEAN);
+                    inky_colors_to_output(WHITE, WHITE);
             }
             continue;
         }
@@ -248,7 +248,7 @@ pub fn convert_image(
 
         for j in 0..((DISPLAY_WIDTH / 2) as u32) {
             let inky_color_1 = if (j * 2) < left_border || (j * 2) >= right_border {
-                CLEAN
+                WHITE
             } else {
                 convert_single_pixel(
                     (i - top_border) as usize,
@@ -260,7 +260,7 @@ pub fn convert_image(
                 )
             };
             let inky_color_2 = if (j * 2 + 1) < left_border || (j * 2 + 1) >= right_border {
-                CLEAN
+                WHITE
             } else {
                 convert_single_pixel(
                     (i - top_border) as usize,

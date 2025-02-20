@@ -1,18 +1,17 @@
-//! # Pico Countdown Blinky Example
+//! This is the main code for the inky frame. It simply loads an image from the SD card and displays
+//! it on the frame.
 //!
-//! Blinks the LED on a Pico board, using an RP2040 Timer in Count-down mode.
-//!
-//! This will blink an LED attached to GP25, which is the pin the Pico uses for
-//! the on-board LED.
-//!
-//! See the `Cargo.toml` file for Copyright and license details.
+//! It configures the A and E buttons to change images backward or forward. It also configures the
+//! Real Time Clock (RTC) to update the display every 5 minutes. This code is designed to make use
+//! of the battery that is included with the inky frame, so power is released as soon as the display
+//! is finished updating, if an update is needed.
 
 #![no_std]
 #![no_main]
 
 use core::cell::RefCell;
 
-use blink::BLINK_ERR_3_SHORT;
+use blink::blink_codes::BLINK_ERR_3_SHORT;
 use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::OutputPin;
 use embedded_hal_bus::spi::RefCellDevice;
@@ -37,7 +36,6 @@ use rp_pico::hal;
 
 mod blink;
 mod inky73;
-mod psram_display;
 mod rtc;
 mod sdcard;
 // Embed the `Hz` function/trait:
@@ -103,7 +101,6 @@ fn main() -> ! {
     );
 
     let mut delay = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
-    let mut sdcard_led_pin = pins.gpio12.into_push_pull_output();
 
     // Configure the external real time clock, which uses i2c
     let sda: Pin<gpio::bank0::Gpio4, gpio::FunctionI2c, gpio::PullUp> = pins.gpio4.reconfigure();
@@ -134,7 +131,7 @@ fn main() -> ! {
     let sdcard_spi_device = RefCellDevice::new(&spi_rc, sdcard_cs, delay).unwrap();
 
     let mut inky = Inky73::new(frame_spi_device, inky_pins, delay);
-    let mut sdcard = InkySdCard::new(sdcard_spi_device, delay, &mut sdcard_led_pin);
+    let mut sdcard = InkySdCard::new(sdcard_spi_device, delay);
 
     match inky.setup() {
         Ok(_) => (),
@@ -170,6 +167,10 @@ fn main() -> ! {
             // Set the timer so that we'll wake if on battery, and advance the draw index.
             rtc.set_minutes_timer(5);
         }
+
+        // TODO: does this work?
+        // Give the display a few more seconds to have access to power before sleeping.
+        delay.delay_ms(10000);
 
         // Sleep now if on battery
         hold_awake_pin.set_low().unwrap();

@@ -28,6 +28,7 @@ impl<'a> Pcf85063a<'a> {
         self.i2c.write(DEVICE_ADDRESS, &[0x03, data]).unwrap()
     }
 
+    #[allow(dead_code)]
     pub fn set_seconds_timer(&mut self, seconds: u8) -> () {
         self.i2c
             .transaction(

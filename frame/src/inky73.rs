@@ -1,18 +1,24 @@
+//! This file contains the implementation of the Inky73 drivers, including display, buttons, and
+//! real time clock alarm.
+//!
+//! The bulk of this code was adapted from the Pimoroni inky frame drivers found here:
+//! https://github.com/pimoroni/pimoroni-pico/tree/main/drivers/inky73
+//!
+//! Specific sections that were copied directly are noted.
 use core::convert::Infallible;
-
-use cortex_m::asm::nop;
 
 use crate::{
     blink::{
-        blink_signals_loop, BLINK_ERR_3_SHORT, BLINK_ERR_4_SHORT, BLINK_ERR_5_SHORT,
-        BLINK_ERR_6_SHORT,
+        blink_codes::{BLINK_ERR_3_SHORT, BLINK_ERR_4_SHORT, BLINK_ERR_5_SHORT, BLINK_ERR_6_SHORT},
+        blink_signals_loop,
     },
     sdcard::InkySdCard,
 };
+use cortex_m::asm::nop;
 use embedded_hal::{
     delay::DelayNs,
     digital::{InputPin, OutputPin},
-    spi::{Operation, SpiBus, SpiDevice},
+    spi::{Operation, SpiDevice},
 };
 use rp_pico::hal::{
     gpio::{
@@ -23,14 +29,12 @@ use rp_pico::hal::{
     Timer,
 };
 
-// Dimensions: 800 x 480
-// Each pixel is one nibble
-// Black is 0
-
-pub const DISPLAY_WIDTH: usize = 800;
-pub const DISPLAY_HEIGHT: usize = 480;
+// NOTE: this is duplicated with the constant in the converter package. Oh well.
 pub const DISPLAY_BUFFER_SIZE: usize = 800 * 480 / 2;
 
+/// The inky frame uses a shift register to collect the button states, the display "busy" state, and
+/// the rtc alarm state. This shift register is very basic. Toggling latch to low begins reading the
+/// register. Toggling clock to high advances the read by one bit. We can read bits on data.
 pub struct ShiftRegister<C, L, D>
 where
     C: OutputPin,
@@ -72,6 +76,8 @@ where
     }
 }
 
+/// Inky73 is a struct that represents the Inky73 device, including the display and the shift
+/// register that manages the button states, display "busy" state, and rtc alarm state.
 pub struct Inky73<Device>
 where
     Device: SpiDevice,
@@ -91,48 +97,57 @@ where
     setup_complete: bool,
 }
 
+// These are commands for the display.
+// All of this was copied from the Pimoroni inky frame drivers found here:
+// https://github.com/pimoroni/pimoroni-pico/tree/main/drivers/inky73
 // Copied from inky73.cpp
-const PSR: u8 = 0x00;
-const PWR: u8 = 0x01;
-const POF: u8 = 0x02;
-const PFS: u8 = 0x03;
-const PON: u8 = 0x04;
-const BTST1: u8 = 0x05;
-const BTST2: u8 = 0x06;
-const DSLP: u8 = 0x07;
-const BTST3: u8 = 0x08;
-const DTM1: u8 = 0x10;
-const DSP: u8 = 0x11;
-const DRF: u8 = 0x12;
-const IPC: u8 = 0x13;
-const PLL: u8 = 0x30;
-const TSC: u8 = 0x40;
-const TSE: u8 = 0x41;
-const TSW: u8 = 0x42;
-const TSR: u8 = 0x43;
-const CDI: u8 = 0x50;
-const LPD: u8 = 0x51;
-const TCON: u8 = 0x60;
-const TRES: u8 = 0x61;
-const DAM: u8 = 0x65;
-const REV: u8 = 0x70;
-const FLG: u8 = 0x71;
-const AMV: u8 = 0x80;
-const VV: u8 = 0x81;
-const VDCS: u8 = 0x82;
-const T_VDCS: u8 = 0x84;
-const AGID: u8 = 0x86;
-const CMDH: u8 = 0xAA;
-const CCSET: u8 = 0xE0;
-const PWS: u8 = 0xE3;
-const TSSET: u8 = 0xE6;
+#[allow(dead_code)]
+mod registers {
+    pub const PSR: u8 = 0x00;
+    pub const PWR: u8 = 0x01;
+    pub const POF: u8 = 0x02;
+    pub const PFS: u8 = 0x03;
+    pub const PON: u8 = 0x04;
+    pub const BTST1: u8 = 0x05;
+    pub const BTST2: u8 = 0x06;
+    pub const DSLP: u8 = 0x07;
+    pub const BTST3: u8 = 0x08;
+    pub const DTM1: u8 = 0x10;
+    pub const DSP: u8 = 0x11;
+    pub const DRF: u8 = 0x12;
+    pub const IPC: u8 = 0x13;
+    pub const PLL: u8 = 0x30;
+    pub const TSC: u8 = 0x40;
+    pub const TSE: u8 = 0x41;
+    pub const TSW: u8 = 0x42;
+    pub const TSR: u8 = 0x43;
+    pub const CDI: u8 = 0x50;
+    pub const LPD: u8 = 0x51;
+    pub const TCON: u8 = 0x60;
+    pub const TRES: u8 = 0x61;
+    pub const DAM: u8 = 0x65;
+    pub const REV: u8 = 0x70;
+    pub const FLG: u8 = 0x71;
+    pub const AMV: u8 = 0x80;
+    pub const VV: u8 = 0x81;
+    pub const VDCS: u8 = 0x82;
+    pub const T_VDCS: u8 = 0x84;
+    pub const AGID: u8 = 0x86;
+    pub const CMDH: u8 = 0xAA;
+    pub const CCSET: u8 = 0xE0;
+    pub const PWS: u8 = 0xE3;
+    pub const TSSET: u8 = 0xE6;
+}
 
+/// This struct represents all of the pins used by the Inky73 display in addition to the spi device.
 pub struct InkyPins {
     pub gpio8: Pin<Gpio8, FunctionSioOutput, PullDown>,
     pub gpio9: Pin<Gpio9, FunctionSioOutput, PullDown>,
     pub gpio10: Pin<Gpio10, FunctionSioInput, PullDown>,
     pub gpio28: Pin<Gpio28, FunctionSioOutput, PullDown>,
     pub gpio27: Pin<Gpio27, FunctionSioOutput, PullDown>,
+    // This is an LED pin, we use it to report whenever the display is busy and to report various
+    // error conditions.
     pub gpio6: Pin<Gpio6, FunctionSioOutput, PullDown>,
 }
 
@@ -170,27 +185,26 @@ where
         self.reset()?;
         self.busy_wait();
 
-        // Copied from inky73.cpp
-        self.command(CMDH, &[0x49, 0x55, 0x20, 0x08, 0x09, 0x18])?;
-        self.command(PWR, &[0x3F, 0x00, 0x32, 0x2A, 0x0E, 0x2A])?;
-        self.command(PSR, &[0x53, 0x69])?;
-        //self.command(PSR, &[0x5F, 0x69])?;
-        self.command(PFS, &[0x00, 0x54, 0x00, 0x44])?;
-        self.command(BTST1, &[0x40, 0x1F, 0x1F, 0x2C])?;
-        self.command(BTST2, &[0x6F, 0x1F, 0x16, 0x25])?;
-        self.command(BTST3, &[0x6F, 0x1F, 0x1F, 0x22])?;
-        self.command(IPC, &[0x00, 0x04])?;
-        self.command(PLL, &[0x02])?;
-        self.command(TSE, &[0x00])?;
-        self.command(CDI, &[0x3F])?;
-        self.command(TCON, &[0x02, 0x00])?;
-        self.command(TRES, &[0x03, 0x20, 0x01, 0xE0])?;
-        self.command(VDCS, &[0x1E])?;
-        self.command(T_VDCS, &[0x00])?;
-        self.command(AGID, &[0x00])?;
-        self.command(PWS, &[0x2F])?;
-        self.command(CCSET, &[0x00])?;
-        self.command(TSSET, &[0x00])?;
+        // Copied from inky73.cpp setup function.
+        self.command(registers::CMDH, &[0x49, 0x55, 0x20, 0x08, 0x09, 0x18])?;
+        self.command(registers::PWR, &[0x3F, 0x00, 0x32, 0x2A, 0x0E, 0x2A])?;
+        self.command(registers::PSR, &[0x53, 0x69])?;
+        self.command(registers::PFS, &[0x00, 0x54, 0x00, 0x44])?;
+        self.command(registers::BTST1, &[0x40, 0x1F, 0x1F, 0x2C])?;
+        self.command(registers::BTST2, &[0x6F, 0x1F, 0x16, 0x25])?;
+        self.command(registers::BTST3, &[0x6F, 0x1F, 0x1F, 0x22])?;
+        self.command(registers::IPC, &[0x00, 0x04])?;
+        self.command(registers::PLL, &[0x02])?;
+        self.command(registers::TSE, &[0x00])?;
+        self.command(registers::CDI, &[0x3F])?;
+        self.command(registers::TCON, &[0x02, 0x00])?;
+        self.command(registers::TRES, &[0x03, 0x20, 0x01, 0xE0])?;
+        self.command(registers::VDCS, &[0x1E])?;
+        self.command(registers::T_VDCS, &[0x00])?;
+        self.command(registers::AGID, &[0x00])?;
+        self.command(registers::PWS, &[0x2F])?;
+        self.command(registers::CCSET, &[0x00])?;
+        self.command(registers::TSSET, &[0x00])?;
         self.setup_complete = true;
         Ok(())
     }
@@ -199,6 +213,7 @@ where
         blink_signals_loop(&mut self.led_pin, &mut self.delay, sig)
     }
 
+    /// Display the image at the given index from the SD card.
     pub fn display_image_index<T: embedded_hal::spi::SpiDevice>(
         &mut self,
         sdcard: &mut InkySdCard<T>,
@@ -261,8 +276,7 @@ where
 
     pub fn busy_wait(&mut self) {
         while self.is_busy() {
-            // TODO: can we do something smarter here
-            nop();
+            self.delay.delay_ms(100);
         }
     }
 
@@ -289,7 +303,7 @@ where
 
         self.dc.set_low()?; // command mode
         self.spi_device
-            .transaction(&mut [Operation::Write(&[DTM1])])
+            .transaction(&mut [Operation::Write(&[registers::DTM1])])
             .unwrap();
         self.dc.set_high()?; // data mode
 
@@ -301,12 +315,12 @@ where
 
         self.busy_wait();
 
-        self.command(PON, &[0])?; // turn on
+        self.command(registers::PON, &[0])?; // turn on
         self.busy_wait();
 
-        self.command(DRF, &[0])?; // start display refresh
+        self.command(registers::DRF, &[0])?; // start display refresh
         self.busy_wait();
-        self.command(POF, &[])?;
+        self.command(registers::POF, &[])?;
         self.busy_wait();
         Ok(())
     }
