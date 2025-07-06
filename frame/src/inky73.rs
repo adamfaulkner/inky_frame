@@ -5,7 +5,7 @@
 //! https://github.com/pimoroni/pimoroni-pico/tree/main/drivers/inky73
 //!
 //! Specific sections that were copied directly are noted.
-use core::convert::Infallible;
+use core::{cell::RefCell, convert::Infallible};
 
 use crate::{
     blink::{
@@ -14,19 +14,28 @@ use crate::{
     },
     sdcard::InkySdCard,
 };
-use cortex_m::asm::nop;
+use cortex_m::{
+    asm::nop,
+    interrupt::{free, Mutex},
+};
 use embedded_hal::{
     delay::DelayNs,
     digital::{InputPin, OutputPin},
     spi::{Operation, SpiDevice},
 };
-use rp_pico::hal::{
-    gpio::{
-        self,
-        bank0::{Gpio10, Gpio27, Gpio28, Gpio6, Gpio8, Gpio9},
-        DynPinId, FunctionSioInput, FunctionSioOutput, Pin, PullDown,
+use fugit::ExtU32;
+use rp_pico::{
+    hal::{
+        gpio::{
+            self,
+            bank0::{Gpio10, Gpio27, Gpio28, Gpio6, Gpio8, Gpio9},
+            DynPinId, FunctionSioInput, FunctionSioOutput, Pin, PullDown,
+        },
+        pac::interrupt,
+        timer::{Alarm, Alarm0},
+        Timer,
     },
-    Timer,
+    pac,
 };
 
 // NOTE: this is duplicated with the constant in the converter package. Oh well.
@@ -151,16 +160,38 @@ pub struct InkyPins {
     pub gpio6: Pin<Gpio6, FunctionSioOutput, PullDown>,
 }
 
+static GLOBAL_ALARM: Mutex<RefCell<Option<Alarm0>>> = Mutex::new(RefCell::new(None));
+
+#[interrupt]
+unsafe fn TIMER_IRQ_0() {
+    free(|cs| {
+        if let Some(alarm) = GLOBAL_ALARM.borrow(cs).borrow_mut().as_mut() {
+            // Clear the interrupt flag for the alarm you used (e.g., Alarm0)
+            alarm.clear_interrupt();
+        }
+    });
+}
+
 impl<Device> Inky73<Device>
 where
     Device: SpiDevice,
 {
-    pub fn new(spi_device: Device, pins: InkyPins, delay: Timer) -> Self {
+    pub fn new(spi_device: Device, pins: InkyPins, mut delay: Timer) -> Self {
         let shift_register = ShiftRegister::new(
             pins.gpio8.into_push_pull_output(),
             pins.gpio9.into_push_pull_output(),
             pins.gpio10.into_pull_up_input(),
         );
+        let mut alarm = delay.alarm_0().unwrap();
+        alarm.enable_interrupt();
+
+        free(|cs| {
+            GLOBAL_ALARM.borrow(cs).replace(Some(alarm));
+        });
+
+        unsafe {
+            pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_0);
+        }
 
         Inky73 {
             dc: pins.gpio28,
@@ -274,9 +305,25 @@ where
         return (self.shift_register.read() & 32) == 32;
     }
 
+    // Delay implements a busy wait; we would like to not do that. This puts the CPU to sleep.
+    fn efficient_sleep(&mut self, approx_ms: u32) {
+        free(|cs| {
+            GLOBAL_ALARM
+                .borrow(cs)
+                .borrow_mut()
+                .as_mut()
+                .unwrap()
+                .schedule(approx_ms.millis())
+                .unwrap()
+        });
+        // Actually put the processor to sleep.
+        cortex_m::asm::wfi();
+        // self.delay.delay_ms(approx_ms);
+    }
+
     pub fn busy_wait(&mut self) {
         while self.is_busy() {
-            self.delay.delay_ms(100);
+            self.efficient_sleep(500);
         }
     }
 
