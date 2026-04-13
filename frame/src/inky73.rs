@@ -103,7 +103,6 @@ where
     >,
 
     led_pin: gpio::Pin<DynPinId, gpio::FunctionSioOutput, gpio::PullDown>,
-    setup_complete: bool,
 }
 
 // These are commands for the display.
@@ -200,7 +199,6 @@ where
             delay,
             led_pin: pins.gpio6.into_push_pull_output().into_dyn_pin(),
             shift_register,
-            setup_complete: false,
         }
     }
 
@@ -236,7 +234,6 @@ where
         self.command(registers::PWS, &[0x2F])?;
         self.command(registers::CCSET, &[0x00])?;
         self.command(registers::TSSET, &[0x00])?;
-        self.setup_complete = true;
         Ok(())
     }
 
@@ -249,16 +246,12 @@ where
         &mut self,
         sdcard: &mut InkySdCard<T>,
         index: usize,
-    ) -> () {
-        if !self.setup_complete {
-            blink_signals_loop(&mut self.led_pin, &mut self.delay, &BLINK_ERR_3_SHORT)
-        }
-
+    ) -> usize {
         self.led_pin.set_high().unwrap();
 
         let mut input_buffer = [0u8; DISPLAY_BUFFER_SIZE];
-        match sdcard.read_file_with_index(index, &mut input_buffer) {
-            Ok(_) => (),
+        let file_index = match sdcard.read_file_with_index(index, &mut input_buffer) {
+            Ok(index) => index,
             Err(0) => self.blink_err_code_loop(&BLINK_ERR_3_SHORT),
             Err(1) => self.blink_err_code_loop(&BLINK_ERR_3_SHORT),
             Err(2) => self.blink_err_code_loop(&BLINK_ERR_4_SHORT),
@@ -287,6 +280,8 @@ where
             }
             Err(_) => blink_signals_loop(&mut self.led_pin, &mut self.delay, &BLINK_ERR_3_SHORT),
         }
+
+        file_index
     }
 
     pub fn is_busy(&mut self) -> bool {
@@ -323,7 +318,7 @@ where
 
     pub fn busy_wait(&mut self) {
         while self.is_busy() {
-            self.efficient_sleep(500);
+            self.efficient_sleep(100);
         }
     }
 

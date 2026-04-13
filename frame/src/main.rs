@@ -11,8 +11,6 @@
 
 use core::cell::RefCell;
 
-use blink::blink_codes::BLINK_ERR_3_SHORT;
-use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::OutputPin;
 use embedded_hal_bus::spi::RefCellDevice;
 use inky73::{Inky73, InkyPins};
@@ -33,6 +31,11 @@ use rp_pico::hal::{gpio, pac, spi, Clock, Timer};
 // A shorter alias for the Hardware Abstraction Layer, which provides
 // higher-level drivers.
 use rp_pico::hal;
+use rp_pico::hal::{
+    clocks::{ClocksManager, InitError},
+    pll::{setup_pll_blocking, PLLConfig},
+    xosc::setup_xosc_blocking,
+};
 
 mod blink;
 mod inky73;
@@ -44,6 +47,52 @@ use rtc::Pcf85063a;
 use sdcard::InkySdCard;
 
 const DELAY_MINUTES: u8 = 30;
+
+fn init_low_power_clocks(
+    xosc_dev: pac::XOSC,
+    clocks_dev: pac::CLOCKS,
+    pll_sys_dev: pac::PLL_SYS,
+    resets: &mut pac::RESETS,
+    watchdog: &mut hal::Watchdog,
+) -> Result<ClocksManager, InitError> {
+    let xosc = setup_xosc_blocking(xosc_dev, rp_pico::XOSC_CRYSTAL_FREQ.Hz())
+        .map_err(InitError::XoscErr)?;
+    watchdog.enable_tick_generation((rp_pico::XOSC_CRYSTAL_FREQ / 1_000_000) as u8);
+
+    let mut clocks = ClocksManager::new(clocks_dev);
+
+    // 12MHz / 1 * 80 = 960MHz VCO; 960MHz / 6 / 2 = 80MHz.
+    // 80MHz keeps the current SPI request at an exact 20MHz with rp2040-hal's divider math.
+    let pll_sys_80mhz = PLLConfig {
+        vco_freq: 960.MHz(),
+        refdiv: 1,
+        post_div1: 6,
+        post_div2: 2,
+    };
+    let pll_sys = setup_pll_blocking(
+        pll_sys_dev,
+        xosc.operating_frequency(),
+        pll_sys_80mhz,
+        &mut clocks,
+        resets,
+    )
+    .map_err(InitError::PllError)?;
+
+    clocks
+        .reference_clock
+        .configure_clock(&xosc, rp_pico::XOSC_CRYSTAL_FREQ.Hz())
+        .map_err(InitError::ClockError)?;
+    clocks
+        .system_clock
+        .configure_clock(&pll_sys, 80.MHz())
+        .map_err(InitError::ClockError)?;
+    clocks
+        .peripheral_clock
+        .configure_clock(&clocks.system_clock, clocks.system_clock.freq())
+        .map_err(InitError::ClockError)?;
+
+    Ok(clocks)
+}
 
 #[entry]
 fn main() -> ! {
@@ -80,19 +129,13 @@ fn main() -> ! {
     // Set up the watchdog driver - needed by the clock setup code
     let mut watchdog = hal::Watchdog::new(pac.WATCHDOG);
 
-    // Configure the clocks
-    //
-    // The default is to generate a 125 MHz system clock
-    let clocks = hal::clocks::init_clocks_and_plls(
-        rp_pico::XOSC_CRYSTAL_FREQ,
+    let clocks = init_low_power_clocks(
         pac.XOSC,
         pac.CLOCKS,
         pac.PLL_SYS,
-        pac.PLL_USB,
         &mut pac.RESETS,
         &mut watchdog,
     )
-    .ok()
     .unwrap();
 
     let spi = spi.init(
@@ -102,7 +145,7 @@ fn main() -> ! {
         embedded_hal::spi::MODE_0,
     );
 
-    let mut delay = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
+    let delay = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
 
     // Configure the external real time clock, which uses i2c
     let sda: Pin<gpio::bank0::Gpio4, gpio::FunctionI2c, gpio::PullUp> = pins.gpio4.reconfigure();
@@ -135,11 +178,6 @@ fn main() -> ! {
     let mut inky = Inky73::new(frame_spi_device, inky_pins, delay);
     let mut sdcard = InkySdCard::new(sdcard_spi_device, delay);
 
-    match inky.setup() {
-        Ok(_) => (),
-        Err(_) => inky.blink_err_code_loop(&BLINK_ERR_3_SHORT),
-    };
-
     let mut ready_to_draw = true;
     loop {
         let mut image_idx = rtc.get_ram_byte();
@@ -164,18 +202,14 @@ fn main() -> ! {
 
         // This ready_to_draw stuff is only relevant on USB power, as power is withdrawn after one iteration of this loop.
         if ready_to_draw {
-            inky.display_image_index(&mut sdcard, image_idx as usize);
+            image_idx = inky.display_image_index(&mut sdcard, image_idx as usize) as u8;
+            rtc.put_ram_byte(image_idx);
             ready_to_draw = false;
             // Set the timer so that we'll wake if on battery, and advance the draw index.
             rtc.set_minutes_timer(DELAY_MINUTES);
         }
 
-        // Give the display a little extra time to have access to power before sleeping. It is
-        // unclear whether this is necessary.
-        delay.delay_ms(100);
-
         // Sleep now if on battery
         hold_awake_pin.set_low().unwrap();
-        delay.delay_ms(100);
     }
 }
