@@ -11,6 +11,7 @@
 
 use core::cell::RefCell;
 
+use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::OutputPin;
 use embedded_hal_bus::spi::RefCellDevice;
 use inky73::{Inky73, InkyPins};
@@ -145,7 +146,7 @@ fn main() -> ! {
         embedded_hal::spi::MODE_0,
     );
 
-    let delay = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
+    let mut delay = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
 
     // Configure the external real time clock, which uses i2c
     let sda: Pin<gpio::bank0::Gpio4, gpio::FunctionI2c, gpio::PullUp> = pins.gpio4.reconfigure();
@@ -211,5 +212,6 @@ fn main() -> ! {
 
         // Sleep now if on battery
         hold_awake_pin.set_low().unwrap();
+        delay.delay_ms(100);
     }
 }
